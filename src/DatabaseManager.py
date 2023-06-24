@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import glob
+import logging
 import os.path
 import sqlite3
 from typing import Dict, List
+from tqdm import tqdm
+
+from src.DNALogging import DNALogging
+from src.constant import BACKGROUND, COMPONENT, AUGMENTATION
+
+# logging
+DNALogging.config_logging()
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -28,7 +37,7 @@ class DatabaseManager:
             );
         """)
 
-        self.col_len["background"] = self.num_of_cols("background")
+        self.col_len[BACKGROUND] = self.num_of_cols(BACKGROUND)
 
         # Initialise component table
         self.cursor.execute("""
@@ -40,7 +49,7 @@ class DatabaseManager:
             );
         """)
 
-        self.col_len["component"] = self.num_of_cols("component")
+        self.col_len[COMPONENT] = self.num_of_cols(COMPONENT)
 
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS augmentation (
@@ -57,7 +66,7 @@ class DatabaseManager:
             );
         """)
 
-        self.col_len["augmentation"] = self.num_of_cols("augmentation")
+        self.col_len[AUGMENTATION] = self.num_of_cols(AUGMENTATION)
 
         self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         self.table_names = [table_name[0] for table_name in self.cursor.fetchall()]
@@ -83,7 +92,8 @@ class DatabaseManager:
 
         results = self.cursor.fetchall()
         if not results:
-            print(f"INFO: No results satisfy {condition} in table {self.table_selected}")
+            logger.info(f"No results satisfy {condition} in table {self.table_selected}")
+            return None
 
         self.table_selected = ""
 
@@ -141,10 +151,26 @@ class DatabaseManager:
         # scan provided path and compare with the database records
         # not matched image records should be removed from the database
         if not os.path.exists(data_path):
-            raise Exception(f"Error: Dataset path {data_path} provided is incorrect")
+            logger.warning(f">>> Directory {data_path} cannot be found.")
+            logger.info(f">>> Directory {data_path} is created.")
+            os.mkdir(data_path)
+            return
+        else:
+            if not os.path.exists(os.path.join(data_path, BACKGROUND)):
+                logger.warning("Directory background does not exist")
+            else:
+                for img in tqdm(glob.glob(os.path.join(data_path, BACKGROUND, "*.png"))):
+                    img_name_dir = img.split("/")[-1]
+                    texture = img_name_dir.split("_")[1]
+                    condition = f"Background_name = '{img_name_dir}' AND Texture = '{texture}'"
 
-        for img in glob.glob(os.path.join(data_path, "background")):
-            pass
+                    if not self.select_table(BACKGROUND).query_data(condition):
+                        self.select_table(BACKGROUND).insert_data(Background_name=img_name_dir, Texture=texture)
+
+            if not os.path.exists(os.path.join(data_path, "augmented")):
+                logger.warning("Directory augmented does not exist")
+            else:
+                pass
 
         for img in glob.glob(os.path.join(data_path, "component")):
             pass
@@ -160,4 +186,6 @@ class DatabaseManager:
 
 if __name__ == "__main__":
     dbm = DatabaseManager("DNA_augmentation")
+    dbm.select_table(BACKGROUND).delete_all_rows()
+    dbm.scan_and_update("../test_dataset")
     dbm.close_connection()

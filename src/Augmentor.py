@@ -25,6 +25,9 @@ class Augmentor:
         max_id = cls.__get_current_num(BACKGROUND)
         counter = max_id + 1 if max_id != 0 else max_id
 
+        # connect to the database
+        db = DatabaseManager(DNA_AUGMENTATION)
+
         print(f">>> Start to produce background images")
         for texture, jobs in tqdm(job_assigner.background_job_pipeline.items(),
                                   total=len(job_assigner.background_job_pipeline)):
@@ -40,9 +43,12 @@ class Augmentor:
                                                      data_loader, texture)
                     concatenated_image = cv2.vconcat([concatenated_image, row_image])
 
-                cv2.imwrite(os.path.join(save_path, f"fake_{texture}_background_{counter}.png"), concatenated_image)
+                save_name = f"fake_{texture}_background_{counter}.png"
+                cv2.imwrite(os.path.join(save_path, save_name), concatenated_image)
+                db.select_table("background").insert_data(Background_name=save_name, Texture=texture)
+
                 counter += 1
-        pass
+        db.close_connection()
 
     @staticmethod
     def __get_current_num(type_name: str) -> int:
