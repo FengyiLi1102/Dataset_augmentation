@@ -2,23 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os.path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 
 from src.Background import Background
 from src.DNALogging import DNALogging
-from src.DataLoader import DataLoader
-from tqdm import tqdm
 import random
 
 import logging
 
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
-from src.constant import BACKGROUND, COMPONENT, AUGMENTATION, SIMPLE
+from src.constant import BACKGROUND, COMPONENT
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -62,9 +59,9 @@ class TaskAssigner:
     @classmethod
     def background_task(cls,
                         args: argparse.Namespace):
-        if int(sum(args.ratio)) != 10:
+        if int(sum(args.bg_ratio)) != 10:
             raise Exception(
-                f"Error: Given ratios are not valid. Sum of them should be 10 instead of {int(sum(args.ratio))}.")
+                f"Error: Given ratios are not valid. Sum of them should be 10 instead of {int(sum(args.bg_ratio))}.")
 
         task_assigner = cls()
 
@@ -72,26 +69,21 @@ class TaskAssigner:
         if not os.path.exists(args.save_path):
             os.mkdir(args.save_path)
 
-        num_for_textures = [int(args.number * r / 10) for r in args.ratio]
-        task_assigner.num_per_side = int(args.size / args.b_size)
+        num_for_textures = [int(args.bg_number * r / 10) for r in args.bg_ratio]
+        task_assigner.num_per_side = int(args.background_size / args.mosaic_size)
         task_assigner.num_mosaic_in_background = task_assigner.num_per_side ** 2
         task_assigner.kernel_size = args.kernel_size
 
         logger.info(">>> Start to assign tasks for each mosaics to generate backgrounds")
         # Assign tasks for producing backgrounds
         for idx, texture in enumerate(Background.background_textures):
-            task_assigner.__background_assign_helper(texture, task_assigner.num_mosaic_in_background,
-                                                     num_for_textures[idx])
+            logger.info(f">>> Assign {num_for_textures[idx]} tasks for generating {texture} backgrounds")
+            task_assigner.background_task_pipeline[texture] = [
+                random.choices(task_assigner.operations_backgrounds, k=task_assigner.num_mosaic_in_background)
+                for _ in range(num_for_textures[idx])
+            ]
 
         return task_assigner
-
-    def __background_assign_helper(self, texture: str,
-                                   n_mo_backgrounds: int,
-                                   n_produced: int):
-        # Assign tasks for producing backgrounds
-        print(f">>> Assign {n_produced} tasks for generating {texture} backgrounds")
-        self.background_task_pipeline[texture] = [
-            random.choices(self.operations_backgrounds, k=n_mo_backgrounds) for _ in range(n_produced)]
 
     @classmethod
     def component_task(cls, args: argparse.Namespace) -> TaskAssigner:

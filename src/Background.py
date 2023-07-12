@@ -13,13 +13,14 @@ class Background(Image):
 
     background_textures = ["clean", "noisy", "noisyL", "messy"]
 
-    def __init__(self, img_path, b_size=None):
+    def __init__(self, img_path: str, mosaic_size: int = 0):
         super().__init__(img_path)
         # category into different textures
-        self.texture = re.split("[/_.]", self.img_name)[1]
+        idx = 1 if not mosaic_size else 2
+        self.texture = re.split("[_.]", self.img_name)[idx]
 
-        if b_size:
-            self.resize_into(b_size, b_size)
+        if mosaic_size:
+            self.resize_into(mosaic_size, mosaic_size)
 
     @staticmethod
     def draw_box(save_name: str, background_img: np.array, label: np.array):

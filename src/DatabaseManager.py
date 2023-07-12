@@ -62,10 +62,9 @@ class DatabaseManager:
                 Component_id INTEGER,
                 Background_id INTEGER,
                 Component_scale REAL,
-                Centre_x REAL,
-                Centre_y REAL,
-                Flip INTEGER,
+                Flip TEXT,
                 Rotate INTEGER,
+                LabelTxt TEXT,
                 FOREIGN KEY(Component_id) REFERENCES component(id),
                 FOREIGN KEY(Background_id) REFERENCES background(id)
             );
@@ -244,7 +243,7 @@ class DatabaseManager:
             # augmentation TODO
             condition_template = ""
             query_columns = []
-            imgs_path = ""
+            imgs_path = "TODO_augmentation"
 
         if not os.path.exists(imgs_path):
             logger.warning(f"Directory {imgs_path} does not exist")

@@ -47,9 +47,9 @@ class Augmentor:
         max_id = cls.__get_current_num(BACKGROUND, db)
         counter = max_id + 1 if max_id != 0 else max_id
 
-        print(f">>> Start to produce background images")
+        logger.info(">>> Start to produce background images")
         for texture, tasks in task_assigner.background_task_pipeline.items():
-            print(f">>> Producing total {len(tasks)} {texture} backgrounds")
+            logger.info(f">>> Producing total {len(tasks)} {texture} backgrounds")
 
             for one_task in tasks:
                 concat_whole_image = cls.__mosaics_in_row(one_task[0: task_assigner.num_per_side],
@@ -337,7 +337,7 @@ class Augmentor:
         logger.info(">>> Start to augment the dataset")
         for task in tqdm(task_assigner.augmentation_task_pipeline):
             # find the corresponding component from its id
-            component = cls.__id_to_image(COMPONENT, task.component_id, data_loader.name_component)
+            component = cls.__id_to_image(COMPONENT, task.component_id, data_loader.name_component, db)
 
             # scale into initial size if not yet
             if not component.initial_scale:
@@ -373,7 +373,7 @@ class Augmentor:
                                    component_label=component_label)
 
             # background
-            background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_background)
+            background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_background, db)
             background_img = background.read()
 
             # check if component is larger than the background
@@ -452,6 +452,19 @@ class Augmentor:
                 f.write(task_assigner.label + " ")
                 f.write(str(task_assigner.difficult))
 
+            # update the database
+            new_record = {
+                "Image_name": f"{save_name}.png",
+                "Component_id": task.component_id,
+                "Background_id": task.background_id,
+                "Component_scale": round(task.required_scale, 2),
+                "Flip": task.flip,
+                "Rotate": task.rotation,
+                "LabelTxt": f"{save_name}.txt"
+            }
+
+            db.select_table(AUGMENTATION).insert_data(**new_record)
+
     @staticmethod
     def __save_directory(mode: str, save_path: str):
         Augmentor.__path_exist_or_create(save_path)
@@ -519,7 +532,7 @@ class Augmentor:
         return False
 
     @staticmethod
-    def __id_to_image(category: str, given_id: int, name_img: Dict) -> Union[Background, Component]:
+    def __id_to_image(category: str, given_id: int, name_img: Dict, db: DatabaseManager) -> Union[Background, Component]:
         if category == BACKGROUND:
             col_name = "Background_name"
         else:

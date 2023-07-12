@@ -9,10 +9,12 @@ class ArgumentParser:
     def __init__(self):
         self.parser = argparse.ArgumentParser("Dataset augmentation parameters")
 
+        # Functionality
         self.parser.add_argument("--function", "-f",
-                                 choices=["produce_chip", "run"],
+                                 choices=["crop_origami", "run", "generate_fake_backgrounds"],
                                  default="run")
 
+        # General parameters
         self.parser.add_argument("--img_path", "-ip",
                                  type=str,
                                  default=r"data",
@@ -27,24 +29,25 @@ class ArgumentParser:
                                  help="Processed images including ready-for-training data")
 
         # For generating fake backgrounds without origami chips
-        self.parser.add_argument("--init_background", "-init_b",
+        self.parser.add_argument("--init_background", "-init_bg",
                                  action="store_true",
                                  help="Initialise backgrounds from background mosaics")
-        self.parser.add_argument("--b_size",
+        self.parser.add_argument("--background_size", "-bg_size",
+                                 type=np.int16,
+                                 default=2560,
+                                 help="Expected generated fake background size")
+        self.parser.add_argument("--mosaic_size", "-ms_size",
                                  type=int,
                                  default=320,
                                  help="Size of the background mosaics")
-        self.parser.add_argument("--number", "-n",
+        self.parser.add_argument("--bg_number", "-bg_n",
                                  type=np.int16,
-                                 default=16)
-        self.parser.add_argument("--ratio", "-r",
+                                 default=100)
+        self.parser.add_argument("--bg_ratio", "-bg_r",
                                  type=np.int8,
                                  nargs=4,
-                                 default=[5, 2, 2, 1],
+                                 default=[3, 3, 3, 1],
                                  help="Number ratio among clean : noisyL : noisy : messy")
-        self.parser.add_argument("--size", "-s",
-                                 type=np.int16,
-                                 default=2560)
         self.parser.add_argument("--kernel_size", "-ks",
                                  type=int,
                                  default=5,
@@ -62,15 +65,15 @@ class ArgumentParser:
         # For producing augmentation images
         self.parser.add_argument("--dataset_name",
                                  type=str,
-                                 default="augmented")
+                                 default="new_augmented_dataset")
         self.parser.add_argument("--initial_scale", "-is",
                                  type=float,
-                                 default=1/6,
+                                 default=1 / 4,
                                  help="Resize the components with a suitable size compared to backgrounds")
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
-                                 default=[0.4, 1.6],
+                                 default=[0.6, 2.0],
                                  help="Scale range for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,
@@ -88,7 +91,7 @@ class ArgumentParser:
                                  default=1000)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
-                                 default="random")
+                                 default="noisy")
         self.parser.add_argument("--components",
                                  choices=["random", "irregular", "regular", "broken", "sheared"],
                                  default="random")
@@ -105,15 +108,15 @@ class ArgumentParser:
         # Training
         self.parser.add_argument("--mode",
                                  choices=["augmentation", "simple"],
-                                 default="simple",
+                                 default="augmentation",
                                  help="augmentation: require training_ratio to split the dataset into proper DOTA "
                                       " format \n"
                                       "simple: only augment the dataset with images and labels")
         self.parser.add_argument("--training_ratio",
                                  type=np.int8,
                                  nargs=3,
-                                 default=[6, 2, 2])
-
+                                 default=[8, 2, 0],
+                                 help="Number ratio of training, validation and testing")
 
     @classmethod
     def run_default(cls) -> argparse.Namespace:
