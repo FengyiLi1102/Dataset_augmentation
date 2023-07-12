@@ -17,7 +17,7 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import DNA_AUGMENTATION, BACKGROUND, COMPONENT
+from src.constant import DNA_AUGMENTATION, BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION
 
 from src.DNALogging import DNALogging
 import logging
@@ -324,29 +324,14 @@ class Augmentor:
                           debug: bool = False):
         background_size = data_loader.background_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
-        #
-        # # rescale the component into the given initial scale
-        # for component in data_loader.component_img:
-        #     # based on the height
-        #     adjusted_scale = scaled_height / component.img_size[0]
-        #
-        #     # initial scale
-        #     component.resize_into(int(component.img_size[1] * adjusted_scale), int(scaled_height))
-        #     component.update_resizing(adjusted_scale)
-        #
-        #     # Debug
-        #     component.draw_box("init")
 
-        # for row in task_assigner.augmentation_task_pipeline:
-        #     print(row)
+        if debug:
+            for row in task_assigner.augmentation_task_pipeline:
+                print(row)
 
         # Saving directory
-        save_path_image = os.path.join(task_assigner.save_path, "augmented/images")
-        save_path_label = os.path.join(task_assigner.save_path, "augmented/labels")
-        if not os.path.exists(save_path_image):
-            os.makedirs(save_path_image)
-        if not os.path.exists(save_path_label):
-            os.makedirs(save_path_label)
+        save_path_root = os.path.join(task_assigner.save_path, task_assigner.dataset_name)
+        Augmentor.__save_directory(task_assigner.mode, save_path_root)
 
         logger.info(">>> Start to augment the dataset")
         for task in tqdm(task_assigner.augmentation_task_pipeline):
@@ -441,13 +426,23 @@ class Augmentor:
             if debug:
                 Background.draw_box(name_placeholder, final_img, final_label)
 
-            # TODO: split the dataset into training, validation and testing
             # TODO: connect to the database
+
+            # Save the image and its label based on the category it belongs to (training, validation, testing)
+            category = ""
+            if task_assigner.mode == AUGMENTATION:
+                if task.split == TRAINING:
+                    category = "train"
+                elif task.split == VALIDATION:
+                    category = "val"
+                else:
+                    category = "test"
+
             # images
-            cv2.imwrite(os.path.join(save_path_image, f"{save_name}.png"), final_img)
+            cv2.imwrite(os.path.join(save_path_root, category, "images", f"{save_name}.png"), final_img)
 
             # labels
-            with open(os.path.join(save_path_label, f"{save_name}.txt"), "w") as f:
+            with open(os.path.join(save_path_root, category, "labelTxt", f"{save_name}.txt"), "w") as f:
                 for coordinate in final_label:
                     x, y = coordinate
                     f.write(f"{x:.6f}" + " ")
@@ -455,6 +450,30 @@ class Augmentor:
 
                 f.write(task_assigner.label + " ")
                 f.write(str(task_assigner.difficult))
+
+    @staticmethod
+    def __save_directory(mode: str, save_path: str):
+        Augmentor.__path_exist_or_create(save_path)
+
+        if mode == SIMPLE:
+            Augmentor.__path_exist_or_create(save_path, "images")
+            Augmentor.__path_exist_or_create(save_path, "labelTxt")
+        elif mode == AUGMENTATION:
+            Augmentor.__path_exist_or_create(save_path, "train/images")
+            Augmentor.__path_exist_or_create(save_path, "train/labelTxt")
+            Augmentor.__path_exist_or_create(save_path, "val/images")
+            Augmentor.__path_exist_or_create(save_path, "val/labelTxt")
+            Augmentor.__path_exist_or_create(save_path, "test/images")
+            Augmentor.__path_exist_or_create(save_path, "test/labelTxt")
+
+    @staticmethod
+    def __path_exist_or_create(root_dir: str, directory: str = ""):
+        save_path = os.path.join(root_dir, directory)
+
+        if not os.path.exists(save_path):
+            logger.warning(f"Directory {save_path} is not found")
+            logger.info(f"Directory {save_path} is created")
+            os.makedirs(save_path)
 
     @staticmethod
     def __random_position(component_size: Tuple[int, int], background_size: int) -> Tuple[int, int]:

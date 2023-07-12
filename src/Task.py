@@ -1,52 +1,43 @@
 from __future__ import annotations
 
+import random
 from typing import Tuple, List
 
-from src.constant import AUGMENTATION
+from src.constant import AUGMENTATION, TRAINING, VALIDATION, TESTING, SIMPLE, BACKGROUND
 
 
 class Task:
-    _required_scale: float
-    _background_id: int
-    _component_id: int
-    _position: Tuple[float, float]
-    _flip: str
-    _rotation: int
-
-    none_placeholder = {
-        "Required_scale": None,
-        "Background_id": None,
-        "Component_id": None,
-        "Position": None,
-        "Flip": None,
-        "Rotation": None
-    }
-
-    def __init__(self, task_type: str, **kwargs):
-        if task_type == "augmentation":
-            if len(kwargs) != 0 and len(kwargs) != 6:
-                raise Exception(f"Error: Provide {len(kwargs)} is not enough to form a augmented task")
-
-            try:
-                self._required_scale = kwargs["Required_scale"]
-                self._background_id = kwargs["Background_id"]
-                self._component_id = kwargs["Component_id"]
-                self._position = kwargs["Position"]
-                self._flip = kwargs["Flip"]
-                self._rotation = kwargs["Rotation"]
-            except Exception as e:
-                raise Exception(f"{e} due to missing data provided")
-        else:
-            # TODO: for background and component tasks
-            exit()
+    _required_scale: float = None
+    _background_id: int = None
+    _component_id: int = None
+    _position: Tuple[float, float] = None
+    _flip: str = None
+    _rotation: int = None
+    _split: int = None
 
     @classmethod
-    def initialise_list(cls, mode: str, num: int) -> List[Task]:
+    def initialise_list(cls, mode: str, num: int, ratio: List[int] = None) -> List[Task]:
         init_list = []
 
-        if mode == AUGMENTATION:
+        if mode == SIMPLE:
             for _ in range(num):
-                init_list.append(Task(AUGMENTATION, **cls.none_placeholder))
+                init_list.append(Task())
+        elif mode == AUGMENTATION:
+            if ratio is None or sum(ratio) != 10:
+                raise Exception(f"Error: Split ratio for training, validation and testing is not given properly.")
+
+            splits_list = [TRAINING for _ in range(int(ratio[0] / 10 * num))] + \
+                          [VALIDATION for _ in range(int(ratio[1] / 10 * num))] + \
+                          [TESTING for _ in range(int(ratio[-1] / 10 * num))]
+
+            for category in splits_list:
+                task = Task()
+                task.split = category
+                init_list.append(task)
+        elif mode == BACKGROUND:
+            pass
+        else:
+            pass
 
         return init_list
 
@@ -98,6 +89,14 @@ class Task:
     def rotation(self, value):
         self._rotation = value
 
+    @property
+    def split(self):
+        return self._split
+
+    @split.setter
+    def split(self, value):
+        self._split = value
+
     def __str__(self):
         return f"required_scale: {self.required_scale} \n" \
                f"background img: {self.background_id} \n" \
@@ -105,6 +104,7 @@ class Task:
                f"position: {self.position} \n" \
                f"flip: {self.flip} \n" \
                f"rotation: {self.rotation} \n" \
+               f"split: {self._split} \n" \
                f"================================================"
 
 

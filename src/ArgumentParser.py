@@ -60,6 +60,9 @@ class ArgumentParser:
                                  help="Extra pixels captured away from the detected DNA origami")
 
         # For producing augmentation images
+        self.parser.add_argument("--dataset_name",
+                                 type=str,
+                                 default="augmented")
         self.parser.add_argument("--initial_scale", "-is",
                                  type=float,
                                  default=1/6,
@@ -100,6 +103,12 @@ class ArgumentParser:
                                  default=0)
 
         # Training
+        self.parser.add_argument("--mode",
+                                 choices=["augmentation", "simple"],
+                                 default="simple",
+                                 help="augmentation: require training_ratio to split the dataset into proper DOTA "
+                                      " format \n"
+                                      "simple: only augment the dataset with images and labels")
         self.parser.add_argument("--training_ratio",
                                  type=np.int8,
                                  nargs=3,
@@ -126,7 +135,8 @@ class ArgumentParser:
                                              "-cp", "../config/params.json",
                                              "-dp", "../dataset",
                                              "-ks", '10',
-                                             "--aug_number", '5'])
+                                             "--aug_number", '5',
+                                             "--mode", "augmentation"])
 
     @classmethod
     def test_aug(cls):

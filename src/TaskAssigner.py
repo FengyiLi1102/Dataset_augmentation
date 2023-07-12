@@ -18,7 +18,7 @@ import logging
 
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
-from src.constant import BACKGROUND, COMPONENT, AUGMENTATION
+from src.constant import BACKGROUND, COMPONENT, AUGMENTATION, SIMPLE
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 class TaskAssigner:
     # General
     save_path: str
+    mode: str
 
     # Backgrounds
     background_task_pipeline: Dict[str, List] = dict()
@@ -46,6 +47,8 @@ class TaskAssigner:
     cropping_inflation: int
 
     # Augmentation
+    dataset_name: str = "augmented"
+
     # [required_scale, background_texture, component_texture, position, flip, rotation]
     initial_scale: float
     augmentation_task_pipeline: List[Task]
@@ -108,6 +111,8 @@ class TaskAssigner:
     def augmented_task(cls, args: argparse.Namespace, db: DatabaseManager) -> TaskAssigner:
         task_assigner = cls()
 
+        task_assigner.mode = args.mode
+        task_assigner.dataset_name = args.dataset_name
         task_assigner.save_path = args.save_path
         task_assigner.label = args.label
         task_assigner.difficult = args.difficult
@@ -115,7 +120,8 @@ class TaskAssigner:
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
 
-        task_assigner.augmentation_task_pipeline = Task.initialise_list(AUGMENTATION, args.aug_number)
+        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, args.aug_number,
+                                                                        args.training_ratio)
 
         # new scales for the origami
         min_scale, max_scale = args.scale_range
@@ -145,9 +151,6 @@ class TaskAssigner:
             # flip
             task.flip = random.choice(flip_options)
 
-            # position
-            # task.position = task_assigner.__random_position(task, db, args)
-
             # rotation
             task.rotation = random.choice(range(-180, max_range, args.rotation_increment))
 
@@ -164,27 +167,6 @@ class TaskAssigner:
                     break
 
         return task_assigner
-
-    # @staticmethod
-    # def random_position(task: Task,
-    #                     db: DatabaseManager,
-    #                     args: argparse.Namespace) -> Tuple[int, int]:
-    #     img_height, img_width = db.select_table(COMPONENT).query_data(f"id = {task.component_id}", ["Height", "Width"])
-    #     background_size = args.size
-    #
-    #     scaled_height = background_size * args.initial_scale
-    #     adjusted_scale = scaled_height / img_height
-    #     scaled_width = int(adjusted_scale * img_width)  # common scaled width
-    #     scaled_height = int(scaled_height)
-    #     width = int(scaled_width * task.required_scale)  # adjusted-scaled width
-    #     height = int(scaled_height * task.required_scale)
-    #
-    #     # half of the diagonal as the minimum distance from the centre of the component to the edge of the background
-    #     half_diagonal = math.ceil(math.sqrt(width ** 2 + height ** 2) / 2)
-    #
-    #     min_domain, max_domain = half_diagonal, background_size - half_diagonal
-    #
-    #     return int(random.uniform(min_domain, max_domain)), int(random.uniform(min_domain, max_domain))
 
     @staticmethod
     def equivalence_check(pipeline: List[Task], scale_interval: float):
