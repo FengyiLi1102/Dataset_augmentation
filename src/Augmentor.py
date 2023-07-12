@@ -99,7 +99,8 @@ class Augmentor:
                     k_size: int,
                     axis: int = 1) -> np.array:
         """
-
+        Only for horizontal and vertical direction.
+        TODO: require for straight lines in any directions
         :param img_1: left or top
         :param img_2: right or bottom
         :param k_size: kernel size for defining the averaging filter
