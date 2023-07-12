@@ -1,0 +1,31 @@
+{
+  "figure": {
+    "width": 9.5,
+    "height": 8
+  },
+  "grid": {
+    "num_data_cols": 5,
+    "num_data_rows": 5
+  },
+  "find_dna_chip": {
+    "dilate_iterations": 9,
+    "erode_iterations": 25,
+    "proportion_max": 0.5,
+    "blur_radius": 7
+  },
+  "find_active_sites": {
+    "blur_radius": 25,
+    "erode_iterations": 3,
+    "dilate_iterations": 3,
+    "thresholding_min": 235,
+    "threshold_contour_radius": 15
+  },
+  "_crop_rows": {
+    "threshold_multiplier": 0.5
+  },
+  "scoring": {
+    "correct_site": 1.0,
+    "wrong_grid_location": 0.5,
+    "extra_bit": 0.5
+  }
+}
