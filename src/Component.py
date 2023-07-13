@@ -1,4 +1,5 @@
 import argparse
+import os.path
 from copy import copy
 from typing import Tuple, List, Dict
 
@@ -81,7 +82,11 @@ class Component(Image):
                  flag: str,
                  scale: float = None,
                  component_img: np.array = None,
-                 component_label: np.array = None):
+                 component_label: np.array = None,
+                 save_directory: str = "../debug"):
+        if not os.path.exists(save_directory):
+            os.mkdir(save_directory)
+
         if component_img is None and component_label is None and not scale:
             img = self.read()
             pts = self.corners.reshape((-1, 1, 2)).astype(np.int32)
@@ -95,4 +100,4 @@ class Component(Image):
             raise Exception(f"Error: Incorrect combination of parameters is given")
 
         cv2.polylines(img, [pts], True, (0, 0, 255), 2)
-        cv2.imwrite(f"debug_{flag}_{self.img_name}.png", img)
+        cv2.imwrite(os.path.join(save_directory, f"debug_{flag}_{self.img_name}.png"), img)
