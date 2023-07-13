@@ -42,7 +42,7 @@ class ArgumentParser:
                                  help="Size of the background mosaics")
         self.parser.add_argument("--bg_number", "-bg_n",
                                  type=np.int16,
-                                 default=100)
+                                 default=200)
         self.parser.add_argument("--bg_ratio", "-bg_r",
                                  type=np.int8,
                                  nargs=4,
@@ -88,7 +88,7 @@ class ArgumentParser:
                                       "smaller -> more scale-down origami")
         self.parser.add_argument("--aug_number",
                                  type=int,
-                                 default=10)
+                                 default=1000)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
                                  default="noisy")
