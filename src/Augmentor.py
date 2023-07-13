@@ -17,7 +17,8 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import DNA_AUGMENTATION, BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION
+from src.constant import DNA_AUGMENTATION, BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, \
+    split_converter
 
 from src.DNALogging import DNALogging
 import logging
@@ -416,7 +417,7 @@ class Augmentor:
                 raise Exception(f"Error: Component falls out of the background.")
 
             # Embed the component on the background
-            name_placeholder = f"{task.required_scale:.2f}_{task.background_id}_{task.component_id}_{task.flip}_" \
+            name_placeholder = f"{task.component_id}_{task.background_id}_{task.required_scale:.2f}_{task.flip}_" \
                                f"{task.rotation}"
             save_name = f"augmented_{name_placeholder}"
 
@@ -460,10 +461,11 @@ class Augmentor:
                 "Component_scale": round(task.required_scale, 2),
                 "Flip": task.flip,
                 "Rotate": task.rotation,
-                "LabelTxt": f"{save_name}.txt"
+                "LabelTxt": f"{save_name}.txt",
+                "Category": split_converter[task.split]
             }
 
-            db.select_table(AUGMENTATION).insert_data(**new_record)
+            db.select_table(task_assigner.dataset_name).insert_data(**new_record)
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):

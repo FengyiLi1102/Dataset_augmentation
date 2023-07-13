@@ -26,7 +26,7 @@ class ArgumentParser:
         self.parser.add_argument("--dataset_path", "-dp",
                                  type=str,
                                  default=r"dataset",
-                                 help="Processed images including ready-for-training data")
+                                 help="Processed images including fake backgrounds and cropped components")
 
         # For generating fake backgrounds without origami chips
         self.parser.add_argument("--init_background", "-init_bg",
@@ -65,7 +65,7 @@ class ArgumentParser:
         # For producing augmentation images
         self.parser.add_argument("--dataset_name",
                                  type=str,
-                                 default="new_augmented_dataset")
+                                 default="one_chip_dataset")
         self.parser.add_argument("--initial_scale", "-is",
                                  type=float,
                                  default=1 / 4,
@@ -88,7 +88,7 @@ class ArgumentParser:
                                       "smaller -> more scale-down origami")
         self.parser.add_argument("--aug_number",
                                  type=int,
-                                 default=1000)
+                                 default=10)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
                                  default="noisy")
@@ -104,6 +104,8 @@ class ArgumentParser:
         self.parser.add_argument("--difficult",
                                  type=int,
                                  default=0)
+        self.parser.add_argument("--debug",
+                                 action="store_true")
 
         # Training
         self.parser.add_argument("--mode",
