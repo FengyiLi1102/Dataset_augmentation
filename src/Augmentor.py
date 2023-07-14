@@ -8,14 +8,14 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from run import ArgumentParser
+from ArgumentParser import ArgumentParser
 from src.Background import Background
 from src.Component import Component
 from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import DNA_AUGMENTATION, BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, \
+from src.constant import BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, \
     split_converter
 
 from src.DNALogging import DNALogging
