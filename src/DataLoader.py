@@ -104,7 +104,9 @@ class DataLoader:
         n_labels = len(component_label_paths)
 
         if n_imgs != n_labels:
-            raise Exception(f"Error: Missing data between images and labels. Should be {n_imgs} = {n_labels}")
+            raise Exception(f"Error: Missing data between images and labels. Should be {n_imgs} = {n_labels} \n"
+                            f"This is currently required users to firstly label manually all the components by \n"
+                            f"some software such as RectLabel.")
 
         logger.info(f">>> Load {len(component_img_paths)} cropped components from {self.dataset_root_path}/component")
         for img_path, label in tqdm(zip(component_img_paths, component_label_paths)):
