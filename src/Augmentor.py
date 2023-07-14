@@ -288,7 +288,8 @@ class Augmentor:
 
                 # update record in the database
                 # FIXME: added height, width
-                db.select_table(COMPONENT).insert_data(Raw_image=input_img.img_name, Sample=img_name, Texture="TEXTURE")
+                db.select_table(COMPONENT).insert_data(Raw_image=input_img.img_name, Sample=img_name, Texture="TEXTURE",
+                                                       Height=found_chip.shape[0], Width=found_chip.shape[1])
 
                 cropped_origami[input_img.img_name].append(found_chip)
                 index_in_name += 1
