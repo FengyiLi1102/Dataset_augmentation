@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from src.ArgumentParser import ArgumentParser
+from run import ArgumentParser
 from src.Background import Background
 from src.Component import Component
 from src.DataLoader import DataLoader
@@ -287,6 +287,7 @@ class Augmentor:
                 cv2.imwrite(os.path.join(save_path, img_name), found_chip)
 
                 # update record in the database
+                # FIXME: added height, width
                 db.select_table(COMPONENT).insert_data(Raw_image=input_img.img_name, Sample=img_name, Texture="TEXTURE")
 
                 cropped_origami[input_img.img_name].append(found_chip)
