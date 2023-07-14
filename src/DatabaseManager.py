@@ -135,6 +135,7 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Error: Insert data into table {self.table_selected} with error {e}.")
 
+        # TODO: (improve) every 50 insertions; show the number of existing records in the database
         logger.info(f"New record is added")
 
         self.table_selected = ""
@@ -145,6 +146,7 @@ class DatabaseManager:
 
         self.__cursor.execute(f"DELETE FROM {self.table_selected} WHERE {condition}")
 
+        # TODO: (improve) display what is deleted; add a query step
         logger.info(f"One row is deleted")
 
         self.table_selected = ""
