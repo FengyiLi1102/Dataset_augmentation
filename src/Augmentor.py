@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from ArgumentParser import ArgumentParser
+from src.ArgumentParser import ArgumentParser
 from src.Background import Background
 from src.Component import Component
 from src.DataLoader import DataLoader

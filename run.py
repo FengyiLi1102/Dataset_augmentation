@@ -1,9 +1,8 @@
 import argparse
 import os.path
 
-import numpy as np
 
-from ArgumentParser import ArgumentParser
+from src.ArgumentParser import ArgumentParser
 from src.Augmentor import Augmentor
 from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
