@@ -134,15 +134,16 @@ class ArgumentParser:
         return arg_parser.parser.parse_args()
 
     @classmethod
-    def test_args(cls):
+    def test_args(cls, function: str):
         arg_parser = cls()
 
-        return arg_parser.parser.parse_args(["-init_b",
-                                             "-ip", "../data",
-                                             "-sp", "../dataset",
-                                             "-cp", "../config/params.json",
-                                             "-dp", "../dataset",
-                                             "-ks", '10',
+        return arg_parser.parser.parse_args(["--function", f"{function}",
+                                            "-init_b",
+                                             "-ip", "data",
+                                             "-sp", "test_dataset",
+                                             "-cp", "config/params.json",
+                                             "-dp", "test_dataset",
+                                             "--bg_number", '10',
                                              "--aug_number", '5',
                                              "--mode", "augmentation"])
 

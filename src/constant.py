@@ -17,3 +17,8 @@ split_converter = {
     1: "val",
     2: "test"
 }
+
+# run
+GENERATE_FAKE_BACKGROUND = "generate_fake_backgrounds"
+CROP_ORIGAMI = "crop_origami"
+RUN = "run"

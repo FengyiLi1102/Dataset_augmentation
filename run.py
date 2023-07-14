@@ -7,7 +7,7 @@ from src.Augmentor import Augmentor
 from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.TaskAssigner import TaskAssigner
-from src.constant import DNA_AUGMENTATION
+from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, RUN
 
 
 def generate_fake_backgrounds(args: argparse.Namespace):
@@ -66,6 +66,9 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    args = parser.parse_args()
-    main(args)
+    # parser = ArgumentParser()
+    # args = parser.parse_args()
+    # main(args)
+
+    # Test
+    main(ArgumentParser.test_args(RUN))
