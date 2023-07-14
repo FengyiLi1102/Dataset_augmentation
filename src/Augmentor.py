@@ -208,7 +208,7 @@ class Augmentor:
 
         save_path = os.path.join(task_assigner.save_path, "component", "images")
         if not os.path.exists(save_path):
-            os.mkdir(save_path)
+            os.makedirs(save_path)
 
         logger.info(f">>> Start to crop DNA origami to produce component")
         for input_img in data_loader.raw_input_img:
