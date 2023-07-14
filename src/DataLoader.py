@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import json
-import sqlite3
-import argparse
 import glob
 import os.path
 from collections import defaultdict
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
-import cv2
-import pandas as pd
 from tqdm import tqdm
 
 from src.Background import Background
@@ -19,7 +14,6 @@ from src.Image import Image
 
 import logging.config
 
-from src.constant import BACKGROUND
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)

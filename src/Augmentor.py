@@ -2,12 +2,10 @@ import math
 import os.path
 import random
 from collections import defaultdict
-from copy import copy
 from typing import List, Dict, Union, Tuple
 
 import cv2
 import numpy as np
-import argparse
 from tqdm import tqdm
 
 from src.ArgumentParser import ArgumentParser
