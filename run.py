@@ -66,9 +66,9 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    # parser = ArgumentParser()
-    # args = parser.parse_args()
-    # main(args)
+    parser = ArgumentParser()
+    args = parser.parse_args()
+    main(args)
 
     # Test
-    main(ArgumentParser.test_args(RUN))
+    # main(ArgumentParser.test_args(RUN))
