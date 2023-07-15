@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import glob
 import os.path
+import pickle
 from collections import defaultdict
+from datetime import datetime
 from typing import List, Dict
 
 from tqdm import tqdm
@@ -14,6 +16,7 @@ from src.Image import Image
 
 import logging.config
 
+from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -23,6 +26,7 @@ class DataLoader:
     # TODO: save once loaded images in the format of .npy or pickle for future quick loading
     img_root_path: str  # root of images required to be processes: background mosaics and raw images containing chips
     dataset_root_path: str  # root of prepared images: backgrounds and cropped components
+    save_path: str
 
     background_img: Dict[str, List[Background]] = defaultdict(list)
     name_background: Dict[str, Background] = dict()
@@ -35,13 +39,37 @@ class DataLoader:
     @classmethod
     def initialise(cls,
                    img_path: str,
-                   dataset_path: str) -> DataLoader:
+                   dataset_path: str,
+                   save_path: str) -> DataLoader:
         data_loader = cls()
 
         data_loader.img_root_path = img_path
         data_loader.dataset_root_path = dataset_path
+        data_loader.save_path = save_path
 
         return data_loader
+
+    @classmethod
+    def fast_init(cls) -> DataLoader:
+        return cls()
+
+    def load_cached_files(self, cache_type: str, cache_path: str):
+        if not os.path.exists(cache_path):
+            raise FileExistsError(f'Given cache file {cache_path.split("/")[-1]} cannot be found')
+
+        with open(cache_path, "rb") as f:
+            logger.info(f">>> Load data from cache {cache_path.split('/')[-1]}")
+
+            if cache_type == "fake_bg":
+                self.background_img, self.name_background = pickle.load(f)
+            elif cache_type == "mosaic":
+                self.background_img = pickle.load(f)
+            elif cache_type == "raw_img":
+                self.raw_input_img = pickle.load(f)
+            else:
+                self.component_img, self.name_component = pickle.load(f)
+
+        return self
 
     def load_backgrounds(self, mosaic_size: int):
         """
@@ -66,7 +94,21 @@ class DataLoader:
         for img_path in tqdm(background_img_paths):
             img = Background(img_path, mosaic_size)
             self.background_img[img.texture].append(img)
-            self.name_background[img.img_name] = img
+
+            if mosaic_size == 0:
+                # only used for augmentation
+                self.name_background[img.img_name] = img
+
+        # cache the backgrounds file into pickle for future fast loading
+        prefix = "ready_backgrounds" if mosaic_size == 0 else "mosaics"
+        mkdir_if_not_exists(self.save_path)
+        cache_save_path = os.path.join(self.save_path, f'{prefix}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
+
+        with open(cache_save_path, "wb") as f:
+            if mosaic_size == 0:
+                pickle.dump((self.background_img, self.name_background), f)
+            else:
+                pickle.dump(self.background_img, f)
 
         return self
 
@@ -88,6 +130,13 @@ class DataLoader:
         for img_path in tqdm(raw_img_paths):
             img = Image(img_path)
             self.raw_input_img.append(img)
+
+        # cache the raw images file into pickle for future fast loading
+        mkdir_if_not_exists(self.save_path)
+        cache_save_path = os.path.join(self.save_path, f'rawComponent_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
+
+        with open(cache_save_path, "wb") as f:
+            pickle.dump(self.raw_input_img, f)
 
         return self
 
@@ -113,5 +162,12 @@ class DataLoader:
             img = Component(img_path, label)
             self.component_img.append(img)
             self.name_component[img.img_name] = img
+
+        # cache the cropped origami file into pickle for future fast loading
+        mkdir_if_not_exists(self.save_path)
+        cache_save_path = os.path.join(self.save_path, f'cropped_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
+
+        with open(cache_save_path, "wb") as f:
+            pickle.dump((self.component_img, self.name_component), f)
 
         return self

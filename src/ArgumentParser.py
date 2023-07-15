@@ -29,6 +29,15 @@ class ArgumentParser:
                                  help="Processed images including fake backgrounds and cropped components")
 
         # For generating fake backgrounds without origami chips
+        self.parser.add_argument("--cache_bg_type",
+                                 type=str,
+                                 choices=["mosaic", "fake_bg", "none"],
+                                 default="none",
+                                 help="mosaic: prepared background mosaics; \n"
+                                      "fake_bg: generated fake backgrounds; \n"
+                                      "none: no cache file")
+        self.parser.add_argument("--cache_bg_path",
+                                 type=str)
         self.parser.add_argument("--init_background", "-init_bg",
                                  action="store_true",
                                  help="Initialise backgrounds from background mosaics")
@@ -54,6 +63,15 @@ class ArgumentParser:
                                  help="Averaging kernel size for decease seam visibility")
 
         # For cropping DNA origami from given raw images to make component
+        self.parser.add_argument("--cache_chip_type",
+                                 type=str,
+                                 choices=["raw_img", "cropped", "none"],
+                                 default="none",
+                                 help="raw_img: raw AFM images or cropping origami; \n"
+                                      "cropped: cropped origami chip; \n"
+                                      "none: no cache file")
+        self.parser.add_argument("--cache_chip_path",
+                                 type=str)
         self.parser.add_argument("--config_path", "-cp",
                                  type=str,
                                  default=r"config/params.json")
@@ -142,9 +160,9 @@ class ArgumentParser:
                                              "-ip", "data",
                                              "-sp", "test_dataset",
                                              "-cp", "config/params.json",
-                                             "-dp", "test_dataset",
+                                             "-dp", "dataset",
                                              "--bg_number", '10',
-                                             "--aug_number", '5',
+                                             "--aug_number", '10',
                                              "--mode", "augmentation"])
 
     @classmethod

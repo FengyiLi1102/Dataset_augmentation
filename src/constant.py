@@ -12,7 +12,7 @@ TRAINING = 0
 VALIDATION = 1
 TESTING = 2
 
-split_converter = {
+split_convertor = {
     0: "train",
     1: "val",
     2: "test"
