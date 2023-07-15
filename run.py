@@ -1,7 +1,6 @@
 import argparse
 import os.path
 
-
 from src.ArgumentParser import ArgumentParser
 from src.Augmentor import Augmentor
 from src.DataLoader import DataLoader
@@ -15,8 +14,11 @@ def generate_fake_backgrounds(args: argparse.Namespace):
     db = DatabaseManager(os.path.join(f"data/{DNA_AUGMENTATION}"))
     db.scan_and_update(args.dataset_path)
 
-    # load required data images
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_backgrounds(args.mosaic_size)
+    if args.cache_bg_type == "none":
+        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path) \
+            .load_backgrounds(args.mosaic_size)
+    else:
+        data_loader = DataLoader.initialise().load_cached_files(args.cache_bg_type, args.cache_bg_path)
 
     # generate tasks
     background_task_assigner = TaskAssigner.background_task(args)
@@ -30,8 +32,10 @@ def crop_origami(args: argparse.Namespace):
     db = DatabaseManager(f"data/{DNA_AUGMENTATION}")
     db.scan_and_update(args.dataset_path)
 
-    # load required data images
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_raw_components()
+    if args.cache_chip_type == "none":
+        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path).load_raw_components()
+    else:
+        data_loader = DataLoader.initialise().load_cached_files(args.cache_chip_type, args.cache_chip_path)
 
     # generate tasks
     component_task_assigner = TaskAssigner.component_task(args)
@@ -44,8 +48,21 @@ def run(args: argparse.Namespace):
     db = DatabaseManager(os.path.join("data", DNA_AUGMENTATION), training_dataset_name=args.dataset_name)
     db.scan_and_update(args.dataset_path)
 
-    # load prepared fake backgrounds and components
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_backgrounds(0).load_components()
+    data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path)
+
+    if args.cache_bg_type == "none":
+        data_loader.load_backgrounds(0)
+    elif args.cache_bg_type == "fake_bg":
+        data_loader.load_cached_files(args.cache_bg_type, args.cache_bg_path)
+    else:
+        raise Exception(f"Error: Only prepared backgrounds can be loaded for dataset augmentation")
+
+    if args.cache_chip_type == "none":
+        data_loader.load_components()
+    elif args.cache_chip_type == "cropped":
+        data_loader.load_cached_files(args.cache_chip_type, args.cache_chip_path)
+    else:
+        raise Exception(f"Error: Only cropped components can be loaded for dataset augmentation")
 
     # generate tasks for producing augmented training data
     augmented_task_assigner = TaskAssigner.augmented_task(args, db)
@@ -70,5 +87,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args)
 
-    # Test
     # main(ArgumentParser.test_args(RUN))
