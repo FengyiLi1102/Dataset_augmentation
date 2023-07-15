@@ -16,6 +16,7 @@ import logging
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
 from src.constant import BACKGROUND, COMPONENT
+from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -66,8 +67,7 @@ class TaskAssigner:
         task_assigner = cls()
 
         task_assigner.save_path = args.save_path
-        if not os.path.exists(args.save_path):
-            os.mkdir(args.save_path)
+        mkdir_if_not_exists(task_assigner.save_path)
 
         num_for_textures = [int(args.bg_number * r / 10) for r in args.bg_ratio]
         task_assigner.num_per_side = int(args.background_size / args.mosaic_size)

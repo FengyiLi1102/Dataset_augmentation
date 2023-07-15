@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from src.Image import Image
+from src.utils import mkdir_if_not_exists
 
 
 class Component(Image):
@@ -84,8 +85,7 @@ class Component(Image):
                  component_img: np.array = None,
                  component_label: np.array = None,
                  save_directory: str = "../debug"):
-        if not os.path.exists(save_directory):
-            os.mkdir(save_directory)
+        mkdir_if_not_exists(save_directory)
 
         if component_img is None and component_label is None and not scale:
             img = self.read()

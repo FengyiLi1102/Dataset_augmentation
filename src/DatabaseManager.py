@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from src.DNALogging import DNALogging
 from src.constant import BACKGROUND, COMPONENT, AUGMENTED
+from src.utils import mkdir_if_not_exists
 
 # logging
 DNALogging.config_logging()
@@ -214,10 +215,9 @@ class DatabaseManager:
     def scan_and_update(self, dataset_root_path: str, training_flag: bool = True):
         # scan provided path and compare with the database records
         # not matched image records should be removed from the database
-        if not os.path.exists(dataset_root_path):
+        if mkdir_if_not_exists(dataset_root_path):
             logger.warning(f">>> Directory {dataset_root_path} cannot be found.")
             logger.info(f">>> Directory {dataset_root_path} is created.")
-            os.mkdir(dataset_root_path)
 
             # remove all records to all tables
             self.clean_all_tables()

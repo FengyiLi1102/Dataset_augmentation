@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from src.Image import Image
+from src.utils import mkdir_if_not_exists
 
 
 class Background(Image):
@@ -27,8 +28,7 @@ class Background(Image):
                  background_img: np.array,
                  label: np.array,
                  save_dir: str = "../debug"):
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
+        mkdir_if_not_exists(save_dir)
 
         pts = label.reshape((-1, 1, 2)).astype(np.int32)
         cv2.polylines(background_img, [pts], True, (0, 0, 255), 2)

@@ -16,10 +16,12 @@ from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
 from src.constant import BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, \
-    split_converter
+    split_convertor
 
 from src.DNALogging import DNALogging
 import logging
+
+from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -40,8 +42,7 @@ class Augmentor:
         :return:
         """
         save_path = os.path.join(task_assigner.save_path, BACKGROUND)
-        if not os.path.exists(save_path):
-            os.mkdir(save_path)
+        mkdir_if_not_exists(save_path)
 
         max_id = cls.__get_current_num(BACKGROUND, db)
         counter = max_id + 1 if max_id != 0 else max_id
@@ -207,8 +208,7 @@ class Augmentor:
         index_in_name = Augmentor.__get_current_num(COMPONENT, db)
 
         save_path = os.path.join(task_assigner.save_path, "component", "images")
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        mkdir_if_not_exists(save_path)
 
         logger.info(f">>> Start to crop DNA origami to produce component")
         for input_img in data_loader.raw_input_img:
@@ -462,7 +462,7 @@ class Augmentor:
                 "Flip": task.flip,
                 "Rotate": task.rotation,
                 "LabelTxt": f"{save_name}.txt",
-                "Category": split_converter[task.split]
+                "Category": split_convertor[task.split]
             }
 
             db.select_table(task_assigner.dataset_name).insert_data(**new_record)
@@ -486,10 +486,9 @@ class Augmentor:
     def __path_exist_or_create(root_dir: str, directory: str = ""):
         save_path = os.path.join(root_dir, directory)
 
-        if not os.path.exists(save_path):
+        if mkdir_if_not_exists(save_path):
             logger.warning(f"Directory {save_path} is not found")
             logger.info(f"Directory {save_path} is created")
-            os.makedirs(save_path)
 
     @staticmethod
     def __random_position(component_size: Tuple[int, int], background_size: int) -> Tuple[int, int]:
