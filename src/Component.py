@@ -24,18 +24,32 @@ class Component(Image):
     flipped_image: Dict[str, np.array] = dict()
     flipped_label: Dict[str, np.array] = dict()
 
-    def __init__(self, img_path: str, label_path: str):
-        super().__init__(img_path)
+    def __init__(self,
+                 img_path: str = None,
+                 label_path: str = None,
+                 img: np.array = None,
+                 img_name: str = None,
+                 label: np.array = None
+                 ):
+        super().__init__(img_path=img_path)
+        if img_path is None and label_path is None:
+            # fast create a component object
+            if img is None or img_name is None or label is None:
+                raise ValueError(f"Cannot fast create the Component object due to incorrect data provide")
 
-        # label txt only contains one row of data for the bounding box
-        with open(label_path, "r") as file:
-            label_data = file.read()
-            corner_coordinate = [float(n) for n in label_data.split()[:8]]
+            self.fast_init(img, img_name)
+            self.corners = label
 
-        # (x, y) in (width, height)
-        self.corners = np.array([[corner_coordinate[i], corner_coordinate[i + 1]] for i in range(0, 8, 2)])
-        self.img_centre = np.divide(self.img_size[: 2], 2)
-        self.chip_centre = self.__find_chip_center()
+        else:
+            # label txt only contains one row of data for the bounding box
+            with open(label_path, "r") as file:
+                label_data = file.read()
+
+                # (x, y) in (width, height)
+                self.corners = np.array(label_data.split()[:8], dtype=np.float64).reshape(-1, 2)
+
+            self.img_centre = np.divide(self.img_size[: 2], 2)
+            self.chip_centre = self.__find_chip_center()
 
     def __find_chip_center(self) -> Tuple[float, float]:
         x_y = np.array(self.corners)
@@ -57,7 +71,7 @@ class Component(Image):
         :param scale:
         :return:
         """
-        if not self.resize_into_flat:
+        if not self.resize_into_flag:
             raise Exception(f"Error: Incorrect update the component information. May want to use 'add_resizing_res'")
 
         self.img_centre = np.divide(self.img_size[: 2], 2)

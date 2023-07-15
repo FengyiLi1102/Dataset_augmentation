@@ -38,9 +38,9 @@ class DataLoader:
 
     @classmethod
     def initialise(cls,
-                   img_path: str,
-                   dataset_path: str,
-                   save_path: str) -> DataLoader:
+                   img_path: str = None,
+                   dataset_path: str = None,
+                   save_path: str = None) -> DataLoader:
         data_loader = cls()
 
         data_loader.img_root_path = img_path
@@ -48,10 +48,6 @@ class DataLoader:
         data_loader.save_path = save_path
 
         return data_loader
-
-    @classmethod
-    def fast_init(cls) -> DataLoader:
-        return cls()
 
     def load_cached_files(self, cache_type: str, cache_path: str):
         if not os.path.exists(cache_path):
@@ -69,6 +65,8 @@ class DataLoader:
             else:
                 self.component_img, self.name_component = pickle.load(f)
 
+        logger.info(f">>> Finish loading dataset")
+
         return self
 
     def load_backgrounds(self, mosaic_size: int):
@@ -77,6 +75,10 @@ class DataLoader:
         :param mosaic_size: 0 -> prepared backgrounds; else -> background mosaics
         :return:
         """
+        mode_name = "backgrounds" if not mosaic_size else "mosaics"
+
+        logger.info(f">>> Start to load {mode_name}")
+
         try:
             if mosaic_size:
                 background_img_paths = sorted(glob.glob(os.path.join(self.img_root_path, "background/*")),
@@ -99,6 +101,10 @@ class DataLoader:
                 # only used for augmentation
                 self.name_background[img.img_name] = img
 
+        logger.info(f">>> Finish loading {mode_name}")
+
+        logger.info(f">>> Start to create the cache for {mode_name}")
+
         # cache the backgrounds file into pickle for future fast loading
         prefix = "ready_backgrounds" if mosaic_size == 0 else "mosaics"
         mkdir_if_not_exists(self.save_path)
@@ -110,6 +116,8 @@ class DataLoader:
             else:
                 pickle.dump(self.background_img, f)
 
+        logger.info(f">>> Finish creating the cache file")
+
         return self
 
     def load_raw_components(self):
@@ -117,6 +125,7 @@ class DataLoader:
         Load raw images containing DNA origami chips to crop them for further data augmentation.
         :return:
         """
+        logger.info(">>> Start to load raw images for cropping components")
 
         try:
             raw_img_paths = sorted(glob.glob(os.path.join(self.img_root_path, "component/*")),
@@ -141,6 +150,8 @@ class DataLoader:
         return self
 
     def load_components(self):
+        logger.info(">>> Start to load cropped components")
+
         try:
             component_img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, "component/images/*")),
                                          key=lambda x: int(''.join(filter(str.isdigit, x))))
@@ -163,11 +174,17 @@ class DataLoader:
             self.component_img.append(img)
             self.name_component[img.img_name] = img
 
+        logger.info(">>> Finish loading cropped components")
+
+        logger.info(">>> Start to create the cache for cropped components")
+
         # cache the cropped origami file into pickle for future fast loading
         mkdir_if_not_exists(self.save_path)
         cache_save_path = os.path.join(self.save_path, f'cropped_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
 
         with open(cache_save_path, "wb") as f:
             pickle.dump((self.component_img, self.name_component), f)
+
+        logger.info(">>> Finish creating the cache")
 
         return self

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from copy import copy
 from typing import Tuple, List, Dict
 
@@ -13,20 +15,26 @@ class Image:
     __image: np.array
     img_size: Tuple
 
-    resize_into_flat: bool = False
+    resize_into_flag: bool = False
 
     # dynamic storing augmented images for future potential use
-    img_augmented: Dict[List, np.array] = dict()
+    # img_augmented: Dict[List, np.array] = dict()
 
-    def __init__(self, img_path):
-        self.__image = cv2.imread(img_path)
-        self.img_name = "_".join(img_path.split("/")[-1].split(".")[:-1])
+    def __init__(self, img_path: str = None):
+        if img_path:
+            self.__image = cv2.imread(img_path)
+            self.img_name = "_".join(img_path.split("/")[-1].split(".")[:-1])
+            self.img_size = self.__image.shape
+
+    def fast_init(self, img: np.array, img_name: str):
+        self.__image = img
+        self.img_name = img_name
         self.img_size = self.__image.shape
 
     def resize_into(self, width: int, height: int):
         self.__image = cv2.resize(self.__image, (width, height))
         self.img_size = self.__image.shape
-        self.resize_into_flat = True
+        self.resize_into_flag = True
 
     def show(self):
         cv2.imshow(self.img_name, self.__image)

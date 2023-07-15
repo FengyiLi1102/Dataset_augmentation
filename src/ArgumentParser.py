@@ -38,9 +38,6 @@ class ArgumentParser:
                                       "none: no cache file")
         self.parser.add_argument("--cache_bg_path",
                                  type=str)
-        self.parser.add_argument("--init_background", "-init_bg",
-                                 action="store_true",
-                                 help="Initialise backgrounds from background mosaics")
         self.parser.add_argument("--background_size", "-bg_size",
                                  type=np.int16,
                                  default=2560,
@@ -156,14 +153,13 @@ class ArgumentParser:
         arg_parser = cls()
 
         return arg_parser.parser.parse_args(["--function", f"{function}",
-                                            "-init_b",
                                              "-ip", "data",
                                              "-sp", "test_dataset",
-                                             "-cp", "config/params.json",
-                                             "-dp", "dataset",
+                                             "-dp", "test_dataset",
                                              "--bg_number", '10',
                                              "--aug_number", '10',
-                                             "--mode", "augmentation"])
+                                             "--cache_bg_type", "fake_bg",
+                                             "--cache_bg_path", "test_dataset/backgrounds_2023_07_15_20:10.pkl"])
 
     @classmethod
     def test_aug(cls):

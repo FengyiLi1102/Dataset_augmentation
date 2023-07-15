@@ -1,7 +1,9 @@
 import math
 import os.path
+import pickle
 import random
 from collections import defaultdict
+from datetime import datetime
 from typing import List, Dict, Union, Tuple
 
 import cv2
@@ -47,6 +49,10 @@ class Augmentor:
         max_id = cls.__get_current_num(BACKGROUND, db)
         counter = max_id + 1 if max_id != 0 else max_id
 
+        # cache for future fast load
+        background_img: Dict[str, List[Background]] = defaultdict(list)
+        name_background: Dict[str, Background] = dict()
+
         logger.info(">>> Start to produce background images")
         for texture, tasks in task_assigner.background_task_pipeline.items():
             logger.info(f">>> Producing total {len(tasks)} {texture} backgrounds")
@@ -65,11 +71,30 @@ class Augmentor:
                     concat_whole_image = cls.smooth_seam(concat_whole_image, concat_row_image,
                                                          task_assigner.kernel_size, axis=0)
 
-                save_name = f"fake_{texture}_background_{counter}.png"
-                cv2.imwrite(os.path.join(save_path, save_name), concat_whole_image)
+                save_name = f"fake_{texture}_background_{counter}"
+                save_name_png = f"{save_name}.png"
+                cv2.imwrite(os.path.join(save_path, save_name_png), concat_whole_image)
+
+                # add into the cache
+                fast_data = {
+                    "img": concat_whole_image,
+                    "img_name": save_name_png,
+                    "texture": texture
+                }
+
+                img = Background(img_path=None, **fast_data)
+                background_img[texture].append(img)
+                name_background[save_name] = img
+
+                # update the database
                 db.select_table("background").insert_data(Background_name=save_name, Texture=texture)
 
                 counter += 1
+
+        # create the cache
+        with open(os.path.join(task_assigner.save_path, f'backgrounds_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
+                  "wb") as f:
+            pickle.dump((background_img, name_background), f)
 
     @staticmethod
     def __get_current_num(type_name: str,
@@ -195,15 +220,23 @@ class Augmentor:
         return cv2.warpAffine(image, M, (new_w, new_h)), rotated_label
 
     # NOTE: The following function is adapted from Tejas' previous work.
-    # This function was originally written by Tejas Narayan.
+    # This function was originally written by Tejas Narayan, and I may do some change on it.
     # Source: https://github.com/ic-dna-storage/tn21-ic-msc-project/blob/main/code/image_analysis/cv/models/dna_origami.py#L187C11-L187C11
     @staticmethod
     def produce_components(data_loader: DataLoader,
                            task_assigner: TaskAssigner,
-                           db: DatabaseManager) -> Dict[str, List[np.array]]:
+                           db: DatabaseManager):
+        """
+        Note: Cropping components will not create the cache file because the programme cannot automatically decide
+        which texture the component is. The cache will be only created when the manual work is done and components are
+        firstly loaded.
+        :param data_loader:
+        :param task_assigner:
+        :param db:
+        :return:
+        """
         # https://pyimagesearch.com/2021/04/28/opencv-thresholding-cv2-threshold/
         find_chips_config = task_assigner.config["find_dna_chip"]
-        cropped_origami = defaultdict(list)
         total_chips = 0
         index_in_name = Augmentor.__get_current_num(COMPONENT, db)
 
@@ -215,16 +248,13 @@ class Augmentor:
             logger.info(f"Process image {input_img.img_name}")
 
             img = input_img.read()
-            # img = cv2.copyMakeBorder(img, 100, 100, 100, 100, cv2.BORDER_CONSTANT, 1)
             img_grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
             blurred = cv2.GaussianBlur(img_grey, (find_chips_config["blur_radius"], find_chips_config["blur_radius"]),
                                        0)
 
             otsu_threshold, th = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            # th = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 25, 5)
-
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (8, 8))
-
             best_dilate_iteration = find_chips_config["dilate_iterations"]
             best_erode_iteration = find_chips_config["erode_iterations"]
 
@@ -287,19 +317,15 @@ class Augmentor:
                 cv2.imwrite(os.path.join(save_path, img_name), found_chip)
 
                 # update record in the database
-                # FIXME: added height, width
                 db.select_table(COMPONENT).insert_data(Raw_image=input_img.img_name, Sample=img_name, Texture="TEXTURE",
                                                        Height=found_chip.shape[0], Width=found_chip.shape[1])
 
-                cropped_origami[input_img.img_name].append(found_chip)
                 index_in_name += 1
 
         logger.info(f"All {total_chips} are saved in {save_path}")
 
-        return cropped_origami
-
     # NOTE: The following function is adapted from Tejas' previous work.
-    # This function was originally written by Tejas Narayan.
+    # This function was originally written by Tejas Narayan, and I may do some change on it.
     # Source: https://github.com/ic-dna-storage/tn21-ic-msc-project/blob/main/code/image_analysis/cv/models/dna_origami.py#L116C10-L116C10
     @staticmethod
     def _crop_rect(img: np.array, rect) -> np.array:
@@ -334,6 +360,10 @@ class Augmentor:
         # Saving directory
         save_path_root = os.path.join(task_assigner.save_path, task_assigner.dataset_name)
         Augmentor.__save_directory(task_assigner.mode, save_path_root)
+
+        # cache for future fast loading
+        cached_components: List[Component] = []
+        name_component: Dict[str, Component] = dict()
 
         logger.info(">>> Start to augment the dataset")
         for task in tqdm(task_assigner.augmentation_task_pipeline):
@@ -428,8 +458,6 @@ class Augmentor:
             if debug:
                 Background.draw_box(name_placeholder, final_img, final_label)
 
-            # TODO: connect to the database
-
             # Save the image and its label based on the category it belongs to (training, validation, testing)
             category = ""
             if task_assigner.mode == AUGMENTATION:
@@ -440,11 +468,14 @@ class Augmentor:
                 else:
                     category = "test"
 
+            save_name_png = f"{save_name}.png"
+            save_name_txt = f"{save_name}.txt"
+
             # images
-            cv2.imwrite(os.path.join(save_path_root, category, "images", f"{save_name}.png"), final_img)
+            cv2.imwrite(os.path.join(save_path_root, category, "images", save_name_png), final_img)
 
             # labels
-            with open(os.path.join(save_path_root, category, "labelTxt", f"{save_name}.txt"), "w") as f:
+            with open(os.path.join(save_path_root, category, "labelTxt", save_name_txt), "w") as f:
                 for coordinate in final_label:
                     x, y = coordinate
                     f.write(f"{x:.6f}" + " ")
@@ -455,17 +486,33 @@ class Augmentor:
 
             # update the database
             new_record = {
-                "Image_name": f"{save_name}.png",
+                "Image_name": save_name_png,
                 "Component_id": task.component_id,
                 "Background_id": task.background_id,
                 "Component_scale": round(task.required_scale, 2),
                 "Flip": task.flip,
                 "Rotate": task.rotation,
-                "LabelTxt": f"{save_name}.txt",
+                "LabelTxt": save_name_txt,
                 "Category": split_convertor[task.split]
             }
 
             db.select_table(task_assigner.dataset_name).insert_data(**new_record)
+
+            # add it into the cache
+            fast_data = {
+                "img": final_img,
+                "img_name": save_name_png,
+                "label": final_label
+            }
+
+            img = Component(img_path=None, label_path=None, **fast_data)
+            cached_components.append(img)
+            name_component[save_name] = img
+
+        # create the cache
+        with open(os.path.join(task_assigner.save_path, f'augmented_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
+                  "wb") as f:
+            pickle.dump((cached_components, name_component), f)
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):

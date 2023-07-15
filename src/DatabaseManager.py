@@ -213,6 +213,10 @@ class DatabaseManager:
             raise Exception("Error: Not select table first.")
 
     def scan_and_update(self, dataset_root_path: str, training_flag: bool = True):
+        # TODO: update the database based on the cache file
+        # TODO: if cache_mode is on, the database will not update based on the existing images in the directory
+        # TODO: instead, it uses the caches in the directory to update
+
         # scan provided path and compare with the database records
         # not matched image records should be removed from the database
         if mkdir_if_not_exists(dataset_root_path):
