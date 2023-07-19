@@ -18,7 +18,7 @@ class ArgumentParser:
         self.parser.add_argument("--img_path", "-ip",
                                  type=str,
                                  default=r"data",
-                                 help="Directory of raw background and component images")
+                                 help="Directory of raw mosaic and component images")
         self.parser.add_argument("--save_path", "-sp",
                                  type=str,
                                  default=r"dataset",
@@ -27,13 +27,17 @@ class ArgumentParser:
                                  type=str,
                                  default=r"dataset",
                                  help="Processed images including fake backgrounds and cropped components")
+        self.parser.add_argument("--cache_scan",
+                                 action="store_true",
+                                 help="Flag to indicate scanning from provided cache files instead of images the "
+                                      "directory")
 
         # For generating fake backgrounds without origami chips
         self.parser.add_argument("--cache_bg_type",
                                  type=str,
-                                 choices=["mosaic", "fake_bg", "none"],
+                                 choices=["mosaics", "background", "none"],
                                  default="none",
-                                 help="mosaic: prepared background mosaics; \n"
+                                 help="mosaic: prepared mosaic mosaics; \n"
                                       "fake_bg: generated fake backgrounds; \n"
                                       "none: no cache file")
         self.parser.add_argument("--cache_bg_path",
@@ -41,11 +45,11 @@ class ArgumentParser:
         self.parser.add_argument("--background_size", "-bg_size",
                                  type=np.int16,
                                  default=2560,
-                                 help="Expected generated fake background size")
+                                 help="Expected generated fake mosaic size")
         self.parser.add_argument("--mosaic_size", "-ms_size",
                                  type=int,
                                  default=320,
-                                 help="Size of the background mosaics")
+                                 help="Size of the mosaic mosaics")
         self.parser.add_argument("--bg_number", "-bg_n",
                                  type=np.int16,
                                  default=200)
@@ -62,7 +66,7 @@ class ArgumentParser:
         # For cropping DNA origami from given raw images to make component
         self.parser.add_argument("--cache_chip_type",
                                  type=str,
-                                 choices=["raw_img", "cropped", "none"],
+                                 choices=["raw", "cropped", "none"],
                                  default="none",
                                  help="raw_img: raw AFM images or cropping origami; \n"
                                       "cropped: cropped origami chip; \n"
@@ -141,7 +145,7 @@ class ArgumentParser:
     @classmethod
     def run_default(cls) -> argparse.Namespace:
         """
-        Produce background images, and crop DNA origami chips.
+        Produce mosaic images, and crop DNA origami chips.
         :return:
         """
         arg_parser = cls()

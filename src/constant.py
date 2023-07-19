@@ -5,7 +5,9 @@ COMPONENT = "component"
 AUGMENTATION = "augmentation"
 SIMPLE = "simple"
 AUGMENTED = "augmented"
-
+MOSAICS = "mosaics"
+CROPPED = "cropped"
+RAW = "raw"
 
 # TaskAssigner
 TRAINING = 0

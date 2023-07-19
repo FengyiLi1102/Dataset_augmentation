@@ -3,14 +3,18 @@ from __future__ import annotations
 import glob
 import logging
 import os.path
+import pickle
+import re
 import sqlite3
-from typing import Dict, List, Union
+from copy import copy
+from typing import Dict, List, Union, Tuple
 
 import cv2
 from tqdm import tqdm
 
+from src.AugmentedImage import AugmentedImage
 from src.DNALogging import DNALogging
-from src.constant import BACKGROUND, COMPONENT, AUGMENTED
+from src.constant import BACKGROUND, COMPONENT, AUGMENTED, MOSAICS, CROPPED, RAW
 from src.utils import mkdir_if_not_exists
 
 # logging
@@ -27,12 +31,31 @@ class DatabaseManager:
     table_names: List[str]
     training_dataset_name: str = AUGMENTED
 
+    prefix_name: Dict[str, str] = dict()
+    condition_templates: Dict[str, str] = dict()
+
+    fixed_tables = [BACKGROUND, MOSAICS, RAW, CROPPED]
+    current_all_tables: List[str]
+
     def __init__(self, db_path: str, training_dataset_name: str = AUGMENTED):
         self.__db_connection = sqlite3.connect(db_path)
         self.__cursor = self.__db_connection.cursor()
         self.training_dataset_name = training_dataset_name
 
         logger.info(f">>> Connect to the database {db_path}")
+
+        # Initialise mosaic table
+        self.__cursor.execute("""
+            CREATE TABLE IF NOT EXISTS mosaics (
+                id INTEGER PRIMARY KEY,
+                Mosaic_name TEXT,
+                Texture TEXT,
+                Height INTEGER,
+                Width INTEGER
+            );
+        """)
+
+        # self.col_len[MOSAICS] = self.num_of_cols(MOSAICS)
 
         # Initialise background table
         self.__cursor.execute("""
@@ -43,22 +66,35 @@ class DatabaseManager:
             );
         """)
 
-        self.col_len[BACKGROUND] = self.num_of_cols(BACKGROUND)
+        # self.col_len[BACKGROUND] = self.num_of_cols(BACKGROUND)
 
         # Initialise component table
         self.__cursor.execute("""
-            CREATE TABLE IF NOT EXISTS component (
+            CREATE TABLE IF NOT EXISTS cropped (
                 id INTEGER PRIMARY KEY,
-                Raw_image TEXT,
                 Sample TEXT,
-                Texture TEXT,
+                Raw_image TEXT,
+                Morphology TEXT,
                 Height INTEGER,
                 Width INTEGER 
             );
         """)
 
-        self.col_len[COMPONENT] = self.num_of_cols(COMPONENT)
+        # self.col_len[COMPONENT] = self.num_of_cols(COMPONENT)
 
+        # Initialise raw component table
+        self.__cursor.execute("""
+            CREATE TABLE IF NOT EXISTS raw (
+                id INTEGER PRIMARY KEY,
+                Image_name TEXT,
+                Height INTEGER,
+                Width INTEGER 
+            );
+        """)
+
+        # self.col_len[RAW] = self.num_of_cols(RAW)
+
+        # Initialise augmented dataset with given dataset name
         self.__cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS {training_dataset_name} (
                 id INTEGER PRIMARY KEY,
@@ -71,14 +107,31 @@ class DatabaseManager:
                 Rotate INTEGER,
                 LabelTxt TEXT,
                 FOREIGN KEY(Component_id) REFERENCES component(id),
-                FOREIGN KEY(Background_id) REFERENCES background(id)
+                FOREIGN KEY(Background_id) REFERENCES mosaics(id)
             );
         """)
 
-        self.col_len[training_dataset_name] = self.num_of_cols(training_dataset_name)
+        # self.col_len[training_dataset_name] = self.num_of_cols(training_dataset_name)
 
         self.__cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         self.table_names = [table_name[0] for table_name in self.__cursor.fetchall()]
+
+        self.prefix_name = {
+            MOSAICS: "Mosaic_name",
+            BACKGROUND: "Background_name",
+            RAW: "Image_name",
+            CROPPED: "Sample",
+            training_dataset_name: "Image_name"
+        }
+
+        # for directory-based querying condition template
+        self.current_all_tables = self.fixed_tables + [training_dataset_name]
+
+        for table_name in self.current_all_tables:
+            self.condition_templates[table_name] = self.prefix_name[table_name] + " = '{}'"
+
+            # get number of columns for each current working tables
+            self.col_len[table_name] = self.num_of_cols(table_name)
 
     def num_of_cols(self, table_name: str) -> int:
         self.__cursor.execute(f"PRAGMA table_info({table_name})")
@@ -212,128 +265,233 @@ class DatabaseManager:
         if not self.table_selected:
             raise Exception("Error: Not select table first.")
 
-    def scan_and_update(self, dataset_root_path: str, training_flag: bool = True):
-        # TODO: update the database based on the cache file
-        # TODO: if cache_mode is on, the database will not update based on the existing images in the directory
-        # TODO: instead, it uses the caches in the directory to update
+    def scan_and_update(self,
+                        dataset_root_path: str,
+                        data_path: str,
+                        training_flag: bool = True,
+                        load_cache: bool = True):
+        # TODO: firstly scan from cache files if exist otherwise use exising images
+        # TODO: double load the cache in order to update the table (pref)
 
-        # scan provided path and compare with the database records
-        # not matched image records should be removed from the database
-        if mkdir_if_not_exists(dataset_root_path):
-            logger.warning(f">>> Directory {dataset_root_path} cannot be found.")
-            logger.info(f">>> Directory {dataset_root_path} is created.")
+        # check if provided background mosaics and raw images for cropping exist
+        raw_data_exist = self.__directory_to_table(data_path, [MOSAICS, RAW])
 
-            # remove all records to all tables
-            self.clean_all_tables()
+        # scan provided dataset root directory
+        processed_data_exist = self.__directory_to_table(dataset_root_path,
+                                                         [CROPPED, BACKGROUND, self.training_dataset_name])
 
-            return
-        else:
-            # backgrounds
-            logger.info(f"Scan and update table {BACKGROUND}")
-            self.__scan_helper(BACKGROUND, os.path.join(dataset_root_path, BACKGROUND))
+        # if both directories exist, update records
+        if raw_data_exist or processed_data_exist:
+            # extract cache files in the root directory
+            all_tables = copy(self.current_all_tables)
 
-            # component
-            logger.info(f"Scan and update table {COMPONENT}")
-            self.__scan_helper(COMPONENT, os.path.join(dataset_root_path, COMPONENT))
+            # update based on the cache files
+            if load_cache:
+                logger.info(f">>> Scan based on the cache files")
+                # FIXME: scan all cache files in the directory; can save them in the individual folders
+                cache_paths = glob.glob(os.path.join(dataset_root_path, "*.pkl")) + \
+                              glob.glob(os.path.join(data_path, "*.pkl"))
 
-            # augmentation
-            logger.info(f"Scan and update table {self.training_dataset_name}")
-            self.__scan_helper(self.training_dataset_name, os.path.join(dataset_root_path, self.training_dataset_name),
-                               training_flag=training_flag)
+                for cache_path in cache_paths:
+                    cache_type = re.match(r"(.*?)_\d{4}_.*", cache_path.split("/")[-1]).group(1)
 
-    def __scan_helper(self,
-                      table_name: str,
-                      dataset_path: str,
-                      training_flag: bool = False):
-        # condition for different images
-        # condition is defined only based on the name of each existing image
-        # It depends on how much information that can be extracted from the name of the file
-        if table_name == BACKGROUND:
-            condition_template = "Background_name = '{}' AND Texture = '{}'"
-            imgs_paths = [dataset_path]
-        elif table_name == COMPONENT:
-            condition_template = "Sample = '{}' AND Texture = '{}'"
-            imgs_paths = [os.path.join(dataset_path, "images")]
-            labels_path = os.path.join(dataset_path, "labels")
-        else:
-            # augmentation
-            # e.g. augmented_2.20_42_18_n_5.png
-            #        fixed   scale bg com flip rotation
-            condition_template = "Image_name = '{}'"
+                    # update the corresponding table
+                    logger.info(f">>> Scan and update table {cache_type} from {cache_path}")
+                    self.__scan_cache(cache_type, cache_path)
 
-            if not training_flag:
-                imgs_paths = os.path.join(dataset_path, "images")
+                    # finish updating and remove
+                    all_tables.remove(cache_type)
+
+                # clean tables which do not update
+                for table_name in all_tables:
+                    self.select_table(table_name).delete_all_rows()
             else:
-                split_list = ["train", "val", "test"]
-                imgs_paths = [os.path.join(dataset_path, category, "images") for category in split_list]
-                label_path = [os.path.join(dataset_path, category, "labelTxt") for category in split_list]
+                logger.info(f">>> Scan based on existing images in directories")
 
+                # based on the existing images in the directory
+                for table_name in all_tables:
+                    if table_name in [MOSAICS, RAW]:
+                        load_path = data_path
+                    else:
+                        load_path = dataset_root_path
+
+                    logger.info(f">>> Scan and update table {table_name} from {load_path}")
+
+                    if table_name == self.training_dataset_name:
+                        self.__scan_directory(table_name, os.path.join(load_path, table_name),
+                                              training_flag=training_flag)
+                    else:
+                        self.__scan_directory(table_name, os.path.join(load_path, table_name))
+        else:
+            # both do noe exist, delete all records
+            self.drop_all()
+
+    def __scan_cache(self, cache_type: str, cache_path: str):
+        with open(cache_path, "rb") as f:
+            # name [str] : Background / Component / Image / AugmentedImage
+            dataset = pickle.load(f)
+
+        name_tag = self.prefix_name[cache_type]
+
+        for name, image in dataset.items():
+            if not self.select_table(cache_type).query_data(f"{name_tag} = '{name}'"):
+                # not in the table and update it
+                added_data = self.__scan_cache_helper(cache_type, image)
+                self.select_table(cache_type).insert_data(**added_data)
+
+        # delete invalid records in the database
+        cached_images = ', '.join(f"'{value}'" for value in list(dataset.keys()))
+        self.select_table(cache_type).delete_row(f"{name_tag} NOT IN ({cached_images})")
+
+    def __scan_cache_helper(self,
+                            table_name: str,
+                            image: Union[BACKGROUND, COMPONENT, AugmentedImage]) -> Dict[str, Union[int, float, str]]:
+        table_cols = self.select_table(table_name).__get_column_names(drop=True)
+
+        if table_name == BACKGROUND:
+            # Background_name, Texture
+            table_values = [image.img_name, image.texture]
+        elif table_name == MOSAICS:
+            # Mosaic_name, Texture, Height, Width
+            table_values = [image.img_name, image.texture, image.img_size[0], image.img_size[1]]
+        elif table_name == RAW:
+            # Image_name, Height, Width
+            table_values = [image.img_name, image.img_size[0], image.img_size[1]]
+        elif table_name == CROPPED:
+            # Raw_image, Sample, Texture, Height, Width
+            table_values = [image.img_name, "N/A", image.morphology, image.img_size[0], image.img_size[1]]
+        else:
+            # Image_name, Category, Component_id, Background_id, Component_scale, Flip, Rotate, LabelTxt
+            table_values = [image.img_name, image.category, image.component_id, image.background_id, image.scale,
+                            image.flip, image.rotate, image.label_name]
+
+        return dict(zip(table_cols, table_values))
+
+    def __directory_to_table(self, dir_path: str, tables: List[str]) -> bool:
+        if mkdir_if_not_exists(dir_path):
+            logger.warning(f"Provided {dir_path} does not exist")
+            logger.info(f">>> Directory {dir_path} is created.")
+
+            # remove table records
+            for table_name in tables:
+                self.select_table(table_name).delete_all_rows()
+
+            return False
+
+        return True
+
+    def __scan_directory(self,
+                         table_name: str,
+                         dataset_path: str,
+                         training_flag: bool = False):
+        # TODO: add label txt check
+
+        imgs_paths, labels_paths = self.__img_label_directory(table_name, dataset_path, training_flag)
         query_columns = self.select_table(table_name).__get_column_names(drop=True)
+        condition_template = self.condition_templates[table_name]
 
         for imgs_path in imgs_paths:
             if not os.path.exists(imgs_path):
                 logger.warning(f"Directory {imgs_path} does not exist")
                 self.select_table(table_name).delete_all_rows()
             else:
+                logger.info(f">>> Scan in {imgs_path}")
+
                 records_kept = []  # local existing images
                 category = None  # only for ML dataset
 
                 if table_name == self.training_dataset_name:
                     category = imgs_path.split("/")[-2]
 
-                for img in tqdm(glob.glob(os.path.join(imgs_path, "*.png"))):
-                    column_values = []
-                    img_name_dir = img.split("/")[-1]
-
-                    if table_name in [COMPONENT, BACKGROUND]:
-                        column_values.append(img_name_dir)  # image name
-                        column_values.append(img_name_dir.split("_")[1])  # image texture
-                    else:
-                        # augmented image has a unique name to be identified
-                        column_values.append(img_name_dir)  # image name containing unique information
+                for img_path in tqdm(glob.glob(os.path.join(imgs_path, "*.png"))):
+                    img_name_ext = img_path.split("/")[-1]
 
                     # for query the record in the database
-                    condition = condition_template.format(*column_values)
+                    condition = condition_template.format(img_name_ext)
 
-                    # later on to delete records not corresponding to the existing files
-                    records_kept.append(img_name_dir)
+                    # later on to delete records in the table not corresponding to the existing files
+                    records_kept.append(img_name_ext)
 
-                    # query the database and the image is not there, and add it
+                    # query the database and if the image is not there add it
                     if not self.select_table(table_name).query_data(condition):
-                        if table_name == COMPONENT:
-                            column_values.insert(0, "N/A")  # Unknown raw image
-                            temp_img = cv2.imread(img)
-                            column_values += list(temp_img.shape[: 2])  # height and width
-                        elif table_name != BACKGROUND:
-                            infos = img_name_dir[: -4].split("_")
-                            column_values.append(category)
+                        new_record = self.__form_img_dir_query_con(table_name, img_path, query_columns,
+                                                                   category=category)
 
-                            # component id, background id, scale, flip, rotation, labelTxt
-                            column_values.append(int(infos[1]))
-                            column_values.append(int(infos[2]))
-                            column_values.append(float(infos[3]))
-                            column_values.append(infos[4])
-                            column_values.append(int(infos[5]))
-                            column_values.append(img_name_dir[:-4] + ".txt")
-
-                        # print(dict(zip(query_columns, column_values)))
                         # insert new records
-                        self.select_table(table_name).insert_data(**dict(zip(query_columns, column_values)))
+                        self.select_table(table_name).insert_data(**new_record)
 
                 # delete records that no corresponding images exist in the directory
                 records_kept = ', '.join(f"'{value}'" for value in records_kept)
 
-                if table_name in [BACKGROUND, self.training_dataset_name]:
-                    idx = 0
-                else:
-                    idx = 1
-
-                if table_name in [BACKGROUND, COMPONENT]:
-                    self.select_table(table_name).delete_row(f"{query_columns[idx]} NOT IN ({records_kept})")
+                if table_name != self.training_dataset_name:
+                    self.select_table(table_name).delete_row(f"{query_columns[0]} NOT IN ({records_kept})")
                 else:
                     # augmented
                     self.select_table(table_name).delete_row(
-                        f"Category = '{category}' AND {query_columns[idx]} NOT IN ({records_kept})")
+                        f"Category = '{category}' AND {query_columns[0]} NOT IN ({records_kept})")
+
+    @staticmethod
+    def __form_img_dir_query_con(table_name: str,
+                                 img_path: str,
+                                 query_columns: List[str],
+                                 category: str = None) -> Dict:
+        column_values = []
+        img_name_ext = img_path.split("/")[-1]
+        height, width = cv2.imread(img_path).shape[: 2]
+
+        column_values.append(img_name_ext)  # Background_name / Mosaic name / Image name / Sample
+
+        if table_name in [BACKGROUND, MOSAICS]:
+            column_values.append(img_name_ext.split("_")[1])  # Texture / Morphology
+
+            if table_name == MOSAICS:
+                column_values.append(height)  # height
+                column_values.append(width)  # width
+        elif table_name in [CROPPED, RAW]:
+            column_values.append(height)
+            column_values.append(width)
+
+            if table_name == CROPPED:
+                # for existing image extraction we do not know the raw image where it comes from
+                column_values.insert(1, "N/A")  # Raw image
+                column_values.insert(2, img_name_ext.split("_")[1])  # Morphology
+        else:
+            infos = img_name_ext[: -4].split("_")
+
+            # component id, mosaic id, scale, flip, rotation, labelTxt
+            column_values.append(category)
+            column_values.append(int(infos[1]))
+            column_values.append(int(infos[2]))
+            column_values.append(float(infos[3]))
+            column_values.append(infos[4])
+            column_values.append(int(infos[5]))
+            column_values.append(img_name_ext[:-4] + ".txt")
+
+        return dict(zip(query_columns, column_values))
+
+    @staticmethod
+    def __img_label_directory(table_name: str,
+                              dataset_path: str,
+                              flag: bool = False) -> Tuple[List[str], List[str]]:
+        labels_paths = []
+
+        if table_name in [MOSAICS, RAW, BACKGROUND]:
+            imgs_paths = [dataset_path]
+        elif table_name == CROPPED:
+            imgs_paths = [os.path.join(dataset_path, "images")]
+            labels_paths = [os.path.join(dataset_path, "labels")]
+        else:
+            # augmentation
+            # e.g. augmented_2.20_42_18_n_5.png
+            #        type   scale bg com flip rotation
+            if not flag:
+                imgs_paths = [os.path.join(dataset_path, "images")]
+            else:
+                split_list = ["train", "val", "test"]
+                imgs_paths = [os.path.join(dataset_path, category, "images") for category in split_list]
+                labels_paths = [os.path.join(dataset_path, category, "labelTxt") for category in split_list]
+
+        return imgs_paths, labels_paths
 
     def __get_column_names(self, drop: bool = True) -> List[str]:
         self.__select_table_check()
@@ -359,5 +517,10 @@ class DatabaseManager:
 
 if __name__ == "__main__":
     dbm = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
-    dbm.scan_and_update("../dataset")
+    # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data")
+    dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data", load_cache=False)
     dbm.close_connection()
+    #
+    # dbm = DatabaseManager("../data/test_dbm", training_dataset_name="one_chip_dataset")
+    # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data")
+    # dbm.close_connection()

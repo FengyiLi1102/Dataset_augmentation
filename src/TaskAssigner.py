@@ -15,7 +15,7 @@ import logging
 
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
-from src.constant import BACKGROUND, COMPONENT
+from src.constant import BACKGROUND, COMPONENT, CROPPED
 from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
@@ -31,7 +31,7 @@ class TaskAssigner:
     background_task_pipeline: Dict[str, List] = dict()
 
     """
-    Each background mosaic has flip or 180 degree rotation operations.
+    Each mosaic mosaic has flip or 180 degree rotation operations.
     flip: vertical - 'v' / horizontal - 'h'
     rotation: 180
     """
@@ -138,7 +138,7 @@ class TaskAssigner:
 
             # Choose Background and Component image in id with textures
             TaskAssigner.choose_texture(BACKGROUND, args.backgrounds, task, db)
-            TaskAssigner.choose_texture(COMPONENT, args.components, task, db)
+            TaskAssigner.choose_texture(CROPPED, args.components, task, db)
 
             # flip
             task.flip = random.choice(flip_options)
@@ -182,21 +182,22 @@ class TaskAssigner:
                 return False
 
     @staticmethod
-    def choose_texture(table_name: str, given_texture: str, task: Task, db: DatabaseManager):
+    def choose_texture(table_name: str, given: str, task: Task, db: DatabaseManager):
         ids = db.select_table(table_name).get_unique_values("id")
+        target_col = "Texture" if table_name == BACKGROUND else "Morphology"
 
-        if given_texture == "random":
+        if given == "random":
             if table_name == BACKGROUND:
                 task.background_id = random.choice(ids)
             else:
                 task.component_id = random.choice(ids)
         else:
-            texture_ids = db.select_table(table_name).group_by_column("id", "Texture")
+            grouped_ids = db.select_table(table_name).group_by_column("id", target_col)
 
             if table_name == BACKGROUND:
-                task.background_id = random.choice(texture_ids[given_texture])
+                task.background_id = random.choice(grouped_ids[given])
             else:
-                task.component_id = random.choice(texture_ids[given_texture])
+                task.component_id = random.choice(grouped_ids[given])
 
     @staticmethod
     def biased_random(direction: str, min_scale: float, max_scale: float, num: int) -> float:

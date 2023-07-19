@@ -11,7 +11,6 @@ from src.utils import mkdir_if_not_exists
 
 class Background(Image):
     texture: str  # clean, noisy, messy
-    # __resized_image: np.array
 
     background_textures = ["clean", "noisy", "noisyL", "messy"]
 
@@ -19,21 +18,10 @@ class Background(Image):
                  img_path: Union[str, None],
                  mosaic_size: int = 0,
                  img: np.array = None,
-                 img_name: str = None,
-                 texture: str = None):
-        super().__init__(img_path=img_path)
-        if not img_path:
-            if img is None or img_name is None or texture is None:
-                raise ValueError(f"Cannot fast create the Background object due to incorrect data provide")
-
-            # complete Image attributes
-            self.fast_init(img, img_name)
-
-            self.texture = texture
-        else:
-            # category into different textures
-            idx = 1 if not mosaic_size else 2
-            self.texture = re.split("[_.]", self.img_name)[idx]
+                 img_name: str = None):
+        super().__init__(img_path=img_path, img=img, image_name_ext=img_name)
+        # classify into different textures
+        self.texture = re.split("[_.]", self.img_name)[1]
 
         if mosaic_size:
             self.resize_into(mosaic_size, mosaic_size)

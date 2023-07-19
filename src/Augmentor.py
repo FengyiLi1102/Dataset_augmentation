@@ -1,8 +1,8 @@
 import math
 import os.path
 import pickle
+import logging
 import random
-from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, Union, Tuple
 
@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+from src.AugmentedImage import AugmentedImage
 from src.ArgumentParser import ArgumentParser
 from src.Background import Background
 from src.Component import Component
@@ -17,12 +18,8 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, \
-    split_convertor
-
+from src.constant import BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED
 from src.DNALogging import DNALogging
-import logging
-
 from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
@@ -50,7 +47,6 @@ class Augmentor:
         counter = max_id + 1 if max_id != 0 else max_id
 
         # cache for future fast load
-        background_img: Dict[str, List[Background]] = defaultdict(list)
         name_background: Dict[str, Background] = dict()
 
         logger.info(">>> Start to produce background images")
@@ -59,13 +55,13 @@ class Augmentor:
 
             for one_task in tasks:
                 concat_whole_image = cls.__mosaics_in_row(one_task[0: task_assigner.num_per_side],
-                                                          data_loader.background_img[texture],
+                                                          data_loader.bg_or_mosc_img[texture],
                                                           task_assigner.kernel_size)
 
                 for start_img in range(task_assigner.num_per_side, task_assigner.num_mosaic_in_background,
                                        task_assigner.num_per_side):
                     concat_row_image = cls.__mosaics_in_row(one_task[start_img: start_img + task_assigner.num_per_side],
-                                                            data_loader.background_img[texture],
+                                                            data_loader.bg_or_mosc_img[texture],
                                                             task_assigner.kernel_size)
 
                     concat_whole_image = cls.smooth_seam(concat_whole_image, concat_row_image,
@@ -78,23 +74,21 @@ class Augmentor:
                 # add into the cache
                 fast_data = {
                     "img": concat_whole_image,
-                    "img_name": save_name_png,
-                    "texture": texture
+                    "img_name": save_name_png
                 }
 
                 img = Background(img_path=None, **fast_data)
-                background_img[texture].append(img)
                 name_background[save_name] = img
 
                 # update the database
-                db.select_table("background").insert_data(Background_name=save_name, Texture=texture)
+                db.select_table(BACKGROUND).insert_data(Background_name=save_name_png, Texture=texture)
 
                 counter += 1
 
         # create the cache
-        with open(os.path.join(task_assigner.save_path, f'backgrounds_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
+        with open(os.path.join(task_assigner.save_path, f'background_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
                   "wb") as f:
-            pickle.dump((background_img, name_background), f)
+            pickle.dump(name_background, f)
 
     @staticmethod
     def __get_current_num(type_name: str,
@@ -109,8 +103,11 @@ class Augmentor:
                          k_size: int) -> List[np.array]:
         augmented_images = []
 
-        for operation in task_in_row:
-            augmented_images.append(Augmentor.operate(operation, random.choice(mosaics_pool)))
+        try:
+            for operation in task_in_row:
+                augmented_images.append(Augmentor.operate(operation, random.choice(mosaics_pool)))
+        except IndexError as e:
+            raise Exception(f"Not enough mosaics loaded: only with {len(mosaics_pool)}")
 
         h_concat_images = augmented_images[0]
         for img in augmented_images[1:]:
@@ -238,13 +235,14 @@ class Augmentor:
         # https://pyimagesearch.com/2021/04/28/opencv-thresholding-cv2-threshold/
         find_chips_config = task_assigner.config["find_dna_chip"]
         total_chips = 0
-        index_in_name = Augmentor.__get_current_num(COMPONENT, db)
+        index_in_name = Augmentor.__get_current_num(CROPPED, db)
 
-        save_path = os.path.join(task_assigner.save_path, "component", "images")
+        save_path = os.path.join(task_assigner.save_path, CROPPED, "images")
         mkdir_if_not_exists(save_path)
 
         logger.info(f">>> Start to crop DNA origami to produce component")
-        for input_img in data_loader.raw_input_img:
+
+        for input_img in list(data_loader.name_raw_input.values()):
             logger.info(f"Process image {input_img.img_name}")
 
             img = input_img.read()
@@ -317,8 +315,9 @@ class Augmentor:
                 cv2.imwrite(os.path.join(save_path, img_name), found_chip)
 
                 # update record in the database
-                db.select_table(COMPONENT).insert_data(Raw_image=input_img.img_name, Sample=img_name, Texture="TEXTURE",
-                                                       Height=found_chip.shape[0], Width=found_chip.shape[1])
+                db.select_table(CROPPED).insert_data(Raw_image=input_img.img_name+"."+input_img.ext, Sample=img_name,
+                                                     Morphology="TEXTURE", Height=found_chip.shape[0],
+                                                     Width=found_chip.shape[1])
 
                 index_in_name += 1
 
@@ -350,7 +349,7 @@ class Augmentor:
                           task_assigner: TaskAssigner,
                           db: DatabaseManager,
                           debug: bool = False):
-        background_size = data_loader.background_img["clean"][0].img_size[0]
+        background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
 
         if debug:
@@ -362,13 +361,12 @@ class Augmentor:
         Augmentor.__save_directory(task_assigner.mode, save_path_root)
 
         # cache for future fast loading
-        cached_components: List[Component] = []
-        name_component: Dict[str, Component] = dict()
+        name_augmented: Dict[str, AugmentedImage] = dict()
 
         logger.info(">>> Start to augment the dataset")
         for task in tqdm(task_assigner.augmentation_task_pipeline):
             # find the corresponding component from its id
-            component = cls.__id_to_image(COMPONENT, task.component_id, data_loader.name_component, db)
+            component = cls.__id_to_image(CROPPED, task.component_id, data_loader.name_component, db)
 
             # scale into initial size if not yet
             if not component.initial_scale:
@@ -403,11 +401,11 @@ class Augmentor:
                 component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
                                    component_label=component_label)
 
-            # background
-            background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_background, db)
+            # mosaic
+            background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
 
-            # check if component is larger than the background
+            # check if component is larger than the mosaic
             Augmentor.__is_larger(component_img, background_img, error_flag=True)
 
             # flip
@@ -441,12 +439,12 @@ class Augmentor:
             # position
             task.position = Augmentor.__random_position(component_img.shape[: 2], background_size)
 
-            # if the component lies out of the background, generate another position
+            # if the component lies out of the mosaic, generate another position
             if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], task.position):
                 print(task)
-                raise Exception(f"Error: Component falls out of the background.")
+                raise Exception(f"Error: Component falls out of the mosaic.")
 
-            # Embed the component on the background
+            # Embed the component on the mosaic
             name_placeholder = f"{task.component_id}_{task.background_id}_{task.required_scale:.2f}_{task.flip}_" \
                                f"{task.rotation}"
             save_name = f"augmented_{name_placeholder}"
@@ -487,13 +485,13 @@ class Augmentor:
             # update the database
             new_record = {
                 "Image_name": save_name_png,
+                "Category": category,
                 "Component_id": task.component_id,
                 "Background_id": task.background_id,
                 "Component_scale": round(task.required_scale, 2),
                 "Flip": task.flip,
                 "Rotate": task.rotation,
-                "LabelTxt": save_name_txt,
-                "Category": split_convertor[task.split]
+                "LabelTxt": save_name_txt
             }
 
             db.select_table(task_assigner.dataset_name).insert_data(**new_record)
@@ -505,14 +503,13 @@ class Augmentor:
                 "label": final_label
             }
 
-            img = Component(img_path=None, label_path=None, **fast_data)
-            cached_components.append(img)
-            name_component[save_name] = img
+            img = AugmentedImage(category, **fast_data)
+            name_augmented[save_name] = img
 
         # create the cache
-        with open(os.path.join(task_assigner.save_path, f'augmented_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
-                  "wb") as f:
-            pickle.dump((cached_components, name_component), f)
+        cache_name = f'{task_assigner.dataset_name}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'
+        with open(os.path.join(task_assigner.save_path, cache_name), "wb") as f:
+            pickle.dump(name_augmented, f)
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
@@ -541,7 +538,7 @@ class Augmentor:
     def __random_position(component_size: Tuple[int, int], background_size: int) -> Tuple[int, int]:
         img_height, img_width = component_size
 
-        # half of the diagonal as the minimum distance from the centre of the component to the edge of the background
+        # half of the diagonal as the minimum distance from the centre of the component to the edge of the mosaic
         half_diagonal = math.ceil(math.sqrt(img_height ** 2 + img_width ** 2) / 2)
         min_domain, max_domain = half_diagonal, background_size - half_diagonal
 
@@ -553,7 +550,7 @@ class Augmentor:
                     error_flag: bool = False) -> bool:
         if component_img.shape[0] >= background_img.shape[0] or component_img.shape[1] >= background_img.shape[1]:
             if error_flag:
-                raise Exception(f"Error: Component image size is larger than the background image size")
+                raise Exception(f"Error: Component image size is larger than the mosaic image size")
             else:
                 return True
         else:
@@ -580,7 +577,10 @@ class Augmentor:
         return False
 
     @staticmethod
-    def __id_to_image(category: str, given_id: int, name_img: Dict, db: DatabaseManager) -> Union[Background, Component]:
+    def __id_to_image(category: str,
+                      given_id: int,
+                      name_img: Dict,
+                      db: DatabaseManager) -> Union[Background, Component]:
         if category == BACKGROUND:
             col_name = "Background_name"
         else:
@@ -614,7 +614,7 @@ class Augmentor:
         # invert this mask: black region -> white; non-black region -> black
         mask_inv = cv2.bitwise_not(mask)
 
-        # Apply the inverted mask to the background itself
+        # Apply the inverted mask to the mosaic itself
         # Black regions in the component -> pass
         # Component -> blocked
         bg_and_mask_inv = cv2.bitwise_and(background_img[
@@ -630,11 +630,11 @@ class Augmentor:
         # Non-black region -> pass
         img_and_mask = cv2.bitwise_and(component_img, component_img, mask=mask)
 
-        # Add two images: black regions in the component replaced by the background and leave the component
+        # Add two images: black regions in the component replaced by the mosaic and leave the component
         result = cv2.add(bg_and_mask_inv, img_and_mask)
 
         # TODO: smooth the seam at boundaries
-        # Place the result back into the background
+        # Place the result back into the mosaic
         background_img[
         topLeft_corner_y: topLeft_corner_y + component_img.shape[0],
         topLeft_corner_x: topLeft_corner_x + component_img.shape[1]
@@ -646,13 +646,9 @@ class Augmentor:
 
         return background_img, component_label
 
-    @staticmethod
-    def __chip_to_background(corners: List[Tuple[int, int]], ):
-        pass
-
 
 if __name__ == "__main__":
-    args = ArgumentParser.test_args()
+    args = ArgumentParser.test_args(RUN)
     db = DatabaseManager("../data/DNA_augmentation")
     db.scan_and_update(args.dataset_path)
 

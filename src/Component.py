@@ -1,7 +1,7 @@
 import argparse
 import os.path
 from copy import copy
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Union
 
 import cv2
 import numpy as np
@@ -11,9 +11,14 @@ from src.utils import mkdir_if_not_exists
 
 
 class Component(Image):
+    """
+    Component object can represent DNA origami chip, and also augmented data because they both require image array
+    and label data.
+    """
     image_centre: np.array
     chip_centre: Tuple[float, float] = None
     corners: np.array
+    morphology: str = "N/A"
 
     initial_scale: bool = False
 
@@ -25,21 +30,18 @@ class Component(Image):
     flipped_label: Dict[str, np.array] = dict()
 
     def __init__(self,
-                 img_path: str = None,
-                 label_path: str = None,
+                 img_path: Union[str, None],
+                 label_path: Union[str, None],
                  img: np.array = None,
                  img_name: str = None,
-                 label: np.array = None
-                 ):
-        super().__init__(img_path=img_path)
-        if img_path is None and label_path is None:
+                 label: np.array = None):
+        super().__init__(img_path=img_path, img=img, image_name_ext=img_name)
+        if label_path is None:
             # fast create a component object
-            if img is None or img_name is None or label is None:
+            if label is None:
                 raise ValueError(f"Cannot fast create the Component object due to incorrect data provide")
 
-            self.fast_init(img, img_name)
             self.corners = label
-
         else:
             # label txt only contains one row of data for the bounding box
             with open(label_path, "r") as file:
