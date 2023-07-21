@@ -10,7 +10,7 @@ from copy import copy
 from typing import Dict, List, Union, Tuple
 
 import cv2
-from tqdm import tqdm
+from rich.progress import track
 
 from src.AugmentedImage import AugmentedImage
 from src.DNALogging import DNALogging
@@ -189,8 +189,7 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Error: Insert data into table {self.table_selected} with error {e}.")
 
-        # TODO: (improve) every 50 insertions; show the number of existing records in the database
-        logger.info(f"New record is added")
+        # logger.info(f"New record is added")
 
         self.table_selected = ""
         self.__db_connection.commit()
@@ -269,8 +268,8 @@ class DatabaseManager:
                         dataset_root_path: str,
                         data_path: str,
                         training_flag: bool = True,
-                        load_cache: bool = True):
-        # TODO: firstly scan from cache files if exist otherwise use exising images
+                        load_cache: bool = True,
+                        cache_dir: str = "cache"):
         # TODO: double load the cache in order to update the table (pref)
 
         # check if provided background mosaics and raw images for cropping exist
@@ -288,11 +287,12 @@ class DatabaseManager:
             # update based on the cache files
             if load_cache:
                 logger.info(f">>> Scan based on the cache files")
-                # FIXME: scan all cache files in the directory; can save them in the individual folders
-                cache_paths = glob.glob(os.path.join(dataset_root_path, "*.pkl")) + \
-                              glob.glob(os.path.join(data_path, "*.pkl"))
+                caches_paths = glob.glob(os.path.join(dataset_root_path, cache_dir, "*.pkl")) + \
+                               glob.glob(os.path.join(data_path, cache_dir, "*.pkl"))
 
-                for cache_path in cache_paths:
+                self.__check_cache_files(caches_paths)
+
+                for cache_path in caches_paths:
                     cache_type = re.match(r"(.*?)_\d{4}_.*", cache_path.split("/")[-1]).group(1)
 
                     # update the corresponding table
@@ -403,7 +403,7 @@ class DatabaseManager:
                 if table_name == self.training_dataset_name:
                     category = imgs_path.split("/")[-2]
 
-                for img_path in tqdm(glob.glob(os.path.join(imgs_path, "*.png"))):
+                for img_path in track(glob.glob(os.path.join(imgs_path, "*.png"))):
                     img_name_ext = img_path.split("/")[-1]
 
                     # for query the record in the database
@@ -485,6 +485,7 @@ class DatabaseManager:
             # e.g. augmented_2.20_42_18_n_5.png
             #        type   scale bg com flip rotation
             if not flag:
+                # just for simple augmentation
                 imgs_paths = [os.path.join(dataset_path, "images")]
             else:
                 split_list = ["train", "val", "test"]
@@ -514,11 +515,24 @@ class DatabaseManager:
 
         return result if result is not None else 0
 
+    def __check_cache_files(self, caches_paths):
+        table_check_list = copy(self.current_all_tables)
+
+        for cache_path in caches_paths:
+            cache_type = re.match(r"(.*?)_\d{4}_.*", cache_path.split("/")[-1]).group(1)
+
+            try:
+                table_check_list.remove(cache_type)
+            except Exception as e:
+                raise Exception(
+                    f"Given {e}, more than one {cache_type} is given in the directory {cache_path.split('/')[-2]}")
+
 
 if __name__ == "__main__":
     dbm = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
-    # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data")
-    dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data", load_cache=False)
+    dbm.scan_and_update("../test_dataset", "../data")
+    # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data", load_cache=False)
+    # dbm.drop_all()
     dbm.close_connection()
     #
     # dbm = DatabaseManager("../data/test_dbm", training_dataset_name="one_chip_dataset")

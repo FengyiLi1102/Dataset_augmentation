@@ -26,6 +26,7 @@ class TaskAssigner:
     # General
     save_path: str
     mode: str
+    cache_save_dir: str
 
     # Backgrounds
     background_task_pipeline: Dict[str, List] = dict()
@@ -73,6 +74,7 @@ class TaskAssigner:
         task_assigner.num_per_side = int(args.background_size / args.mosaic_size)
         task_assigner.num_mosaic_in_background = task_assigner.num_per_side ** 2
         task_assigner.kernel_size = args.kernel_size
+        task_assigner.cache_save_dir = args.cache_save_dir
 
         logger.info(">>> Start to assign tasks for each mosaics to generate backgrounds")
         # Assign tasks for producing backgrounds
@@ -91,6 +93,7 @@ class TaskAssigner:
 
         task_assigner.save_path = args.save_path
         task_assigner.cropping_inflation = args.inflation
+        task_assigner.cache_save_dir = args.cache_save_dir
 
         # load configuration parameters for cropping origami chips to make component
         with open(args.config_path, "r") as config_file:
@@ -108,6 +111,7 @@ class TaskAssigner:
         task_assigner.save_path = args.save_path
         task_assigner.label = args.label
         task_assigner.difficult = args.difficult
+        task_assigner.cache_save_dir = args.cache_save_dir
 
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale

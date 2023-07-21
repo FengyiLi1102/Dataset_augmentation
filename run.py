@@ -11,10 +11,11 @@ from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAM
 
 def generate_fake_backgrounds(args: argparse.Namespace, db: DatabaseManager):
     if args.cache_bg_type == "none":
-        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path) \
+        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir) \
             .load_backgrounds(args.mosaic_size)
     else:
-        data_loader = DataLoader.initialise().load_cached_files(args.cache_bg_type, args.cache_bg_path)
+        data_loader = DataLoader.initialise(args.cache_save_dir).load_cached_files(args.cache_bg_type,
+                                                                                   args.cache_bg_path)
 
     # generate tasks
     background_task_assigner = TaskAssigner.background_task(args)
@@ -25,9 +26,11 @@ def generate_fake_backgrounds(args: argparse.Namespace, db: DatabaseManager):
 
 def crop_origami(args: argparse.Namespace, db: DatabaseManager):
     if args.cache_chip_type == "none":
-        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path).load_raw_components()
+        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir) \
+            .load_raw_components()
     else:
-        data_loader = DataLoader.initialise().load_cached_files(args.cache_chip_type, args.cache_chip_path)
+        data_loader = DataLoader.initialise(cache_save_dir=args.cache_save_dir).load_cached_files(args.cache_chip_type,
+                                                                                                  args.cache_chip_path)
 
     # generate tasks
     component_task_assigner = TaskAssigner.component_task(args)
@@ -37,7 +40,7 @@ def crop_origami(args: argparse.Namespace, db: DatabaseManager):
 
 
 def run(args: argparse.Namespace, db: DatabaseManager):
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path)
+    data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir)
 
     if args.cache_bg_type == "none":
         data_loader.load_backgrounds(0)

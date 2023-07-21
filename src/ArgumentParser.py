@@ -31,6 +31,9 @@ class ArgumentParser:
                                  action="store_true",
                                  help="Flag to indicate scanning from provided cache files instead of images the "
                                       "directory")
+        self.parser.add_argument("--cache_save_dir",
+                                 type=str,
+                                 default="cache")
 
         # For generating fake backgrounds without origami chips
         self.parser.add_argument("--cache_bg_type",

@@ -8,7 +8,7 @@ from typing import List, Dict, Union, Tuple
 
 import cv2
 import numpy as np
-from tqdm import tqdm
+from rich.progress import track
 
 from src.AugmentedImage import AugmentedImage
 from src.ArgumentParser import ArgumentParser
@@ -86,7 +86,11 @@ class Augmentor:
                 counter += 1
 
         # create the cache
-        with open(os.path.join(task_assigner.save_path, f'background_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
+        cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
+
+        mkdir_if_not_exists(cache_save_path)
+
+        with open(os.path.join(cache_save_path, f'background_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'),
                   "wb") as f:
             pickle.dump(name_background, f)
 
@@ -364,7 +368,7 @@ class Augmentor:
         name_augmented: Dict[str, AugmentedImage] = dict()
 
         logger.info(">>> Start to augment the dataset")
-        for task in tqdm(task_assigner.augmentation_task_pipeline):
+        for task in track(task_assigner.augmentation_task_pipeline):
             # find the corresponding component from its id
             component = cls.__id_to_image(CROPPED, task.component_id, data_loader.name_component, db)
 
@@ -507,8 +511,12 @@ class Augmentor:
             name_augmented[save_name] = img
 
         # create the cache
+        cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
+
+        mkdir_if_not_exists(cache_save_path)
+
         cache_name = f'{task_assigner.dataset_name}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'
-        with open(os.path.join(task_assigner.save_path, cache_name), "wb") as f:
+        with open(os.path.join(cache_save_path, cache_name), "wb") as f:
             pickle.dump(name_augmented, f)
 
     @staticmethod
@@ -652,7 +660,7 @@ if __name__ == "__main__":
     db = DatabaseManager("../data/DNA_augmentation")
     db.scan_and_update(args.dataset_path)
 
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_backgrounds(0).load_components()
+    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_backgrounds(0).load_components
 
     # component
     # data_loader = DataLoader.initialise(args.img_path).load_raw_components()
