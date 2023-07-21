@@ -1,0 +1,8 @@
+config/data.csv
+config/just_the_chip.png
+docs/DNA_origami_augmentation.drawio
+test/test_Augmentor.py
+test/test_database.py
+test/test_DataLoader.py
+test/test_JobAssigner.py
+token.txt
