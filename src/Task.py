@@ -34,10 +34,6 @@ class Task:
                 task = Task()
                 task.split = category
                 init_list.append(task)
-        elif mode == BACKGROUND:
-            pass
-        else:
-            pass
 
         return init_list
 
