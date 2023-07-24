@@ -15,43 +15,36 @@ class Component(Image):
     Component object can represent DNA origami chip, and also augmented data because they both require image array
     and label data.
     """
-    image_centre: np.array
-    chip_centre: Tuple[float, float] = None
-    corners: np.array
-    morphology: str = "N/A"
+    def __init__(self, img_path: str, label_path: str):
+        super().__init__(img_path)
 
-    initial_scale: bool = False
+        self.image_centre: np.array
+        self.chip_centre: Tuple[float, float]
 
-    # dynamic storage
-    scaled_image: Dict[float, np.array] = dict()
-    scaled_labels: Dict[float, np.array] = dict()
+        # label txt only contains one row of data for the bounding box
+        with open(label_path, "r") as file:
+            label_data = file.read()
 
-    flipped_image: Dict[str, np.array] = dict()
-    flipped_label: Dict[str, np.array] = dict()
+            # (x, y) in (width, height)
+            self.corners = np.array(label_data.split()[:8], dtype=np.float64).reshape(-1, 2)
 
-    def __init__(self,
-                 img_path: Union[str, None],
-                 label_path: Union[str, None],
-                 img: np.array = None,
-                 img_name: str = None,
-                 label: np.array = None):
-        super().__init__(img_path=img_path, img=img, image_name_ext=img_name)
-        if label_path is None:
-            # fast create a component object
-            if label is None:
-                raise ValueError(f"Cannot fast create the Component object due to incorrect data provide")
+        self.img_centre = np.divide(self.img_size[: 2], 2)
+        self.chip_centre = self.__find_chip_center()
 
-            self.corners = label
+        # morphology
+        if img_path is not None:
+            self.morphology: str = img_path.split("/")[-1].split("_")[1]
         else:
-            # label txt only contains one row of data for the bounding box
-            with open(label_path, "r") as file:
-                label_data = file.read()
+            self.morphology = "N/A"
 
-                # (x, y) in (width, height)
-                self.corners = np.array(label_data.split()[:8], dtype=np.float64).reshape(-1, 2)
+        self.initial_scale: bool = False
 
-            self.img_centre = np.divide(self.img_size[: 2], 2)
-            self.chip_centre = self.__find_chip_center()
+        # dynamic storage
+        self.scaled_image: Dict[float, np.array] = dict()
+        self.scaled_labels: Dict[float, np.array] = dict()
+
+        self.flipped_image: Dict[str, np.array] = dict()
+        self.flipped_label: Dict[str, np.array] = dict()
 
     def __find_chip_center(self) -> Tuple[float, float]:
         x_y = np.array(self.corners)

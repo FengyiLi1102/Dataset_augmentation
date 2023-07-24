@@ -7,13 +7,16 @@ from src.constant import AUGMENTATION, TRAINING, VALIDATION, TESTING, SIMPLE, BA
 
 
 class Task:
-    _required_scale: float = None
-    _background_id: int = None
-    _component_id: int = None
-    _position: Tuple[float, float] = None
-    _flip: str = None
-    _rotation: int = None
-    _split: int = None
+
+    def __init__(self):
+        self.background_id: int = 0
+        self.required_scale: List[float] = []
+        self.component_id: List[int] = []
+        self.position: List[Tuple[int, int]] = []
+        self.flip: List[str] = []
+        self.rotation: List[int] = []
+
+        self.split: int = 0
 
     @classmethod
     def initialise_list(cls, mode: str, num: int, ratio: List[int] = None) -> List[Task]:
@@ -37,74 +40,16 @@ class Task:
 
         return init_list
 
-    @property
-    def required_scale(self):
-        return self._required_scale
-
-    @required_scale.setter
-    def required_scale(self, value):
-        self._required_scale = value
-
-    @property
-    def background_id(self):
-        return self._background_id
-
-    @background_id.setter
-    def background_id(self, value):
-        self._background_id = value
-
-    @property
-    def component_id(self):
-        return self._component_id
-
-    @component_id.setter
-    def component_id(self, value):
-        self._component_id = value
-
-    @property
-    def position(self):
-        return self._position
-
-    @position.setter
-    def position(self, value):
-        self._position = value
-
-    @property
-    def flip(self):
-        return self._flip
-
-    @flip.setter
-    def flip(self, value):
-        self._flip = value
-
-    @property
-    def rotation(self):
-        return self._rotation
-
-    @rotation.setter
-    def rotation(self, value):
-        self._rotation = value
-
-    @property
-    def split(self):
-        return self._split
-
-    @split.setter
-    def split(self, value):
-        self._split = value
-
     def __str__(self):
-        return f"required_scale: {self.required_scale} \n" \
-               f"background img: {self.background_id} \n" \
-               f"component img: {self.component_id} \n" \
-               f"position: {self.position} \n" \
-               f"flip: {self.flip} \n" \
-               f"rotation: {self.rotation} \n" \
-               f"split: {self._split} \n" \
-               f"================================================"
+        print(f"Background img: {self.background_id}")
 
+        for idx in range(len(self.required_scale)):
+            print(f"required_scale: {self.required_scale[idx]} \n",
+                  f"component img: {self.component_id[idx]} \n",
+                  f"flip: {self.flip[idx]} \n",
+                  f"rotation: {self.rotation[idx]} \n")
 
-if __name__ == "__main__":
-    test = Task.initialise_list(10)
-    test[0].rotation = 10
-    print(test[0].rotation)
+        print(f"split: {self.split} \n")
+        print(f"================================================")
+
+        return ""

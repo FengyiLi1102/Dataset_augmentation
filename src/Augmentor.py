@@ -1,3 +1,4 @@
+import hashlib
 import math
 import os.path
 import pickle
@@ -18,7 +19,7 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import BACKGROUND, COMPONENT, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED
+from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED
 from src.DNALogging import DNALogging
 from src.utils import mkdir_if_not_exists
 
@@ -319,7 +320,8 @@ class Augmentor:
                 cv2.imwrite(os.path.join(save_path, img_name), found_chip)
 
                 # update record in the database
-                db.select_table(CROPPED).insert_data(Raw_image=input_img.img_name+"."+input_img.ext, Sample=img_name,
+                db.select_table(CROPPED).insert_data(Raw_image=input_img.img_name + "." + input_img.ext,
+                                                     Sample=img_name,
                                                      Morphology="TEXTURE", Height=found_chip.shape[0],
                                                      Width=found_chip.shape[1])
 
@@ -328,7 +330,7 @@ class Augmentor:
         logger.info(f"All {total_chips} are saved in {save_path}")
 
     # NOTE: The following function is adapted from Tejas' previous work.
-    # This function was originally written by Tejas Narayan, and I may do some change on it.
+    # This function was originally written by Tejas Narayan, and I did some change on it.
     # Source: https://github.com/ic-dna-storage/tn21-ic-msc-project/blob/main/code/image_analysis/cv/models/dna_origami.py#L116C10-L116C10
     @staticmethod
     def _crop_rect(img: np.array, rect) -> np.array:
@@ -356,6 +358,12 @@ class Augmentor:
         background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
 
+        my_hash = None
+
+        if task_assigner.n_chip > 1:
+            my_hash = hashlib.sha256()
+
+        # Debug: display each task information
         if debug:
             for row in task_assigner.augmentation_task_pipeline:
                 print(row)
@@ -369,99 +377,135 @@ class Augmentor:
 
         logger.info(">>> Start to augment the dataset")
         for task in track(task_assigner.augmentation_task_pipeline):
-            # find the corresponding component from its id
-            component = cls.__id_to_image(CROPPED, task.component_id, data_loader.name_component, db)
-
-            # scale into initial size if not yet
-            if not component.initial_scale:
-                # based on the height
-                adjusted_scale = scaled_height / component.img_size[0]
-
-                # initial scale
-                component.resize_into(int(component.img_size[1] * adjusted_scale), int(scaled_height))
-                component.update_resizing(adjusted_scale)
-
-                component.initial_scale = True
-
-                # Debug
-                if debug:
-                    component.draw_box("init")
-
-            # Rescale the component image
-            if task.required_scale in component.scaled_image:
-                # have rescaled before
-                component_img = component.scaled_image[task.required_scale]
-                component_label = component.scaled_labels[task.required_scale]
-            elif task.required_scale == 1.0:
-                component_img = component.read()
-                component_label = component.corners
-            else:
-                # new scale
-                scaled_size = tuple(int(x) for x in np.dot(component.img_size[: 2], task.required_scale))[::-1]
-                component_img, component_label = component.add_resizing_res(scaled_size, task.required_scale)
-
-            # debug
-            if debug:
-                component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
-                                   component_label=component_label)
-
-            # mosaic
+            # background
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
 
-            # check if component is larger than the mosaic
-            Augmentor.__is_larger(component_img, background_img, error_flag=True)
+            save_names: List[str] = []
+            final_img = background_img
+            final_labels: List[np.array] = []
+            db_records: List[Dict[str]] = []
 
-            # flip
-            if task.flip == "n":
-                # no flip
-                pass
-            elif task.required_scale == 1:
-                # just flip
-                if task.required_scale in component.flipped_image:
-                    # original scale but have flipped before
-                    component_img = component.flipped_image[task.flip]
-                    component_label = component.flipped_label[task.flip]
+            # for each origami chip
+            for idx in range(task_assigner.n_chip):
+                # extract the data
+                this_component_id = task.component_id[idx]
+                this_required_scale = task.required_scale[idx]
+                this_flip = task.flip[idx]
+                this_rotation = task.rotation[idx]
+
+                # find the corresponding component from its id
+                component = cls.__id_to_image(CROPPED, this_component_id, data_loader.name_component, db)
+
+                # scale into initial size if not yet
+                if not component.initial_scale:
+                    # based on the height
+                    adjusted_scale = scaled_height / component.img_size[0]
+
+                    # initial scale
+                    component.resize_into(int(component.img_size[1] * adjusted_scale), int(scaled_height))
+                    component.update_resizing(adjusted_scale)
+
+                    component.initial_scale = True
+
+                    # Debug: show initial background images
+                    if debug:
+                        component.draw_box("init")
+
+                # Rescale the component image
+                if this_required_scale in component.scaled_image:
+                    # have rescaled before, directly apply from the storage
+                    component_img = component.scaled_image[this_required_scale]
+                    component_label = component.scaled_labels[this_required_scale]
+                elif this_required_scale == 1.0:
+                    component_img = component.read()
+                    component_label = component.corners
                 else:
-                    # not flipped before
-                    component_img, component_label = cls.__flip(component_img, task.flip, component_label)
-                    component.add_flipping_res(task.flip, component_img, component_label)
-            else:
-                # rescaled and flip
-                component_img, component_label = cls.__flip(component_img, task.flip, component_label)
-            if debug:
-                component.draw_box(f"flipped_{task.flip}", component_img=component_img, component_label=component_label)
+                    # new scale
+                    scaled_size = tuple(int(x) for x in np.dot(component.img_size[: 2], this_required_scale))[::-1]
+                    component_img, component_label = component.add_resizing_res(scaled_size, this_required_scale)
 
-            # rotate
-            component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
-            component_img, component_label = Augmentor.__rotate(component_img, task.rotation, component_label_centre)
+                # debug: show resized component with its labels
+                if debug:
+                    component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
+                                       component_label=component_label)
 
-            if debug:
-                component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
-                                   component_label=component_label)
+                # check if component is larger than the background
+                Augmentor.__is_larger(component_img, background_img, error_flag=True)
 
-            # position
-            task.position = Augmentor.__random_position(component_img.shape[: 2], background_size)
+                # flip
+                if this_flip == "n":
+                    # no flip
+                    pass
+                elif this_required_scale == 1:
+                    # just flip without rescale
+                    if this_flip in component.flipped_image:
+                        # original scale but have flipped before
+                        component_img = component.flipped_image[this_flip]
+                        component_label = component.flipped_label[this_flip]
+                    else:
+                        # not flipped before
+                        component_img, component_label = cls.__flip(component_img, this_flip,
+                                                                    label=component_label)
+                        component.add_flipping_res(this_flip, component_img, component_label)
+                else:
+                    # rescaled and flip
+                    component_img, component_label = cls.__flip(component_img, this_flip, label=component_label)
 
-            # if the component lies out of the mosaic, generate another position
-            if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], task.position):
-                print(task)
-                raise Exception(f"Error: Component falls out of the mosaic.")
+                # debug: show resized and flipped component with its surrounding box
+                if debug:
+                    component.draw_box(f"flipped_{task.flip}", component_img=component_img,
+                                       component_label=component_label)
 
-            # Embed the component on the mosaic
-            name_placeholder = f"{task.component_id}_{task.background_id}_{task.required_scale:.2f}_{task.flip}_" \
-                               f"{task.rotation}"
-            save_name = f"augmented_{name_placeholder}"
+                # rotate
+                component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
+                component_img, component_label = Augmentor.__rotate(component_img, this_rotation,
+                                                                    component_label_centre)
 
-            final_img, final_label = Augmentor.__embed_component(component_img, component_label, background_img,
-                                                                 task.position)
+                # debug: show resized, flipped and rotated component with its surrounding box
+                if debug:
+                    component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
+                                       component_label=component_label)
 
-            # debug
-            if debug:
-                Background.draw_box(name_placeholder, final_img, final_label)
+                # position
+                # TODO: check overlap with other chips
+                task.position.insert(idx, Augmentor.__random_position(component_img.shape[: 2], background_size))
 
-            # Save the image and its label based on the category it belongs to (training, validation, testing)
-            category = ""
+                this_position = task.position[idx]
+
+                # if the component lies out of the background, generate another position
+                if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], this_position):
+                    print(task)
+                    raise Exception(f"Error: Component falls out of the mosaic.")
+
+                # generate the image name
+                name_placeholder = f"{this_component_id}_{task.background_id}_{this_required_scale:.2f}_{this_flip}_" \
+                                   f"{this_rotation}"
+                save_names.append(name_placeholder)
+
+                # Embed the component on the background
+                final_img, final_label = Augmentor.__embed_component(component_img, component_label, final_img,
+                                                                     this_position)
+                final_labels.append(final_label)
+
+                # add new records for updating the database
+                new_record = {
+                    "Component_id": this_component_id,
+                    "Background_id": task.background_id,
+                    "Component_scale": round(this_required_scale, 2),
+                    "Flip": this_flip,
+                    "Rotate": this_rotation,
+                }
+
+                db_records.append(new_record)
+
+                # debug: show final result
+                if debug:
+                    Background.draw_box(name_placeholder, final_img, final_label)
+
+            # Save the image and its labels to the category it belongs to (training, validation, testing)
+            category: str = ""
+
             if task_assigner.mode == AUGMENTATION:
                 if task.split == TRAINING:
                     category = "train"
@@ -470,44 +514,47 @@ class Augmentor:
                 else:
                     category = "test"
 
-            save_name_png = f"{save_name}.png"
-            save_name_txt = f"{save_name}.txt"
+            if len(save_names) == 1:
+                save_name = "augmented_" + save_names[0]
+            else:
+                my_hash.update(", ".join(save_names).encode())
+                save_name = my_hash.hexdigest()
 
             # images
+            save_name_png = f"{save_name}.png"
             cv2.imwrite(os.path.join(save_path_root, category, "images", save_name_png), final_img)
 
             # labels
+            save_name_txt = f"{save_name}.txt"
             with open(os.path.join(save_path_root, category, "labelTxt", save_name_txt), "w") as f:
-                for coordinate in final_label:
-                    x, y = coordinate
-                    f.write(f"{x:.6f}" + " ")
-                    f.write(f"{y:.6f}" + " ")
+                for coordinates in final_labels:
+                    # get one coordinate array for the chip
+                    for coordinate in coordinates:
+                        x, y = coordinate
+                        f.write(f"{x:.6f}" + " ")
+                        f.write(f"{y:.6f}" + " ")
 
-                f.write(task_assigner.label + " ")
-                f.write(str(task_assigner.difficult))
+                    f.write(task_assigner.label + " ")
+                    f.write(str(task_assigner.difficult))
+                    f.write("\n")
 
             # update the database
-            new_record = {
-                "Image_name": save_name_png,
-                "Category": category,
-                "Component_id": task.component_id,
-                "Background_id": task.background_id,
-                "Component_scale": round(task.required_scale, 2),
-                "Flip": task.flip,
-                "Rotate": task.rotation,
-                "LabelTxt": save_name_txt
-            }
+            for record in db_records:
+                record["Image_name"] = save_name_png
+                record["Category"] = category
+                record["LabelTxt"] = save_name_txt
 
-            db.select_table(task_assigner.dataset_name).insert_data(**new_record)
+                db.select_table(task_assigner.dataset_name).insert_data(**record)
 
             # add it into the cache
-            fast_data = {
+            fast_create_data = {
                 "img": final_img,
                 "img_name": save_name_png,
-                "label": final_label
+                "label": final_labels,
+                "data": db_records
             }
 
-            img = AugmentedImage(category, **fast_data)
+            img = AugmentedImage(category, **fast_create_data)
             name_augmented[save_name] = img
 
         # create the cache
@@ -521,21 +568,21 @@ class Augmentor:
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
-        Augmentor.__path_exist_or_create(save_path)
+        Augmentor.__path_exists_or_create(save_path)
 
         if mode == SIMPLE:
-            Augmentor.__path_exist_or_create(save_path, "images")
-            Augmentor.__path_exist_or_create(save_path, "labelTxt")
+            Augmentor.__path_exists_or_create(save_path, "images")
+            Augmentor.__path_exists_or_create(save_path, "labelTxt")
         elif mode == AUGMENTATION:
-            Augmentor.__path_exist_or_create(save_path, "train/images")
-            Augmentor.__path_exist_or_create(save_path, "train/labelTxt")
-            Augmentor.__path_exist_or_create(save_path, "val/images")
-            Augmentor.__path_exist_or_create(save_path, "val/labelTxt")
-            Augmentor.__path_exist_or_create(save_path, "test/images")
-            Augmentor.__path_exist_or_create(save_path, "test/labelTxt")
+            Augmentor.__path_exists_or_create(save_path, "train/images")
+            Augmentor.__path_exists_or_create(save_path, "train/labelTxt")
+            Augmentor.__path_exists_or_create(save_path, "val/images")
+            Augmentor.__path_exists_or_create(save_path, "val/labelTxt")
+            Augmentor.__path_exists_or_create(save_path, "test/images")
+            Augmentor.__path_exists_or_create(save_path, "test/labelTxt")
 
     @staticmethod
-    def __path_exist_or_create(root_dir: str, directory: str = ""):
+    def __path_exists_or_create(root_dir: str, directory: str = ""):
         save_path = os.path.join(root_dir, directory)
 
         if mkdir_if_not_exists(save_path):
@@ -608,7 +655,7 @@ class Augmentor:
     def __embed_component(component_img: np.array,
                           component_label: np.array,
                           background_img: np.array,
-                          position: Tuple[int, int]) -> np.array:
+                          position: Tuple[int, int]) -> Tuple[np.array, np.array]:
         new_centre_x, new_centre_y = position
         topLeft_corner_y = new_centre_y - component_img.shape[0] // 2
         topLeft_corner_x = new_centre_x - component_img.shape[1] // 2
@@ -656,11 +703,16 @@ class Augmentor:
 
 
 if __name__ == "__main__":
-    args = ArgumentParser.test_args(RUN)
-    db = DatabaseManager("../data/DNA_augmentation")
-    db.scan_and_update(args.dataset_path)
+    args = ArgumentParser.test_aug(RUN)
+    db = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
+    db.scan_and_update("../test_dataset", "../data")
 
-    data_loader = DataLoader.initialise(args.img_path, args.dataset_path).load_backgrounds(0).load_components
+    data_loader = DataLoader.initialise(save_path=args.save_path,
+                                        cache_save_dir=args.cache_save_dir)
+
+    data_loader.load_cached_files(BACKGROUND, "../test_dataset/cache/background_2023_07_22_04:54.pkl")
+    data_loader.load_cached_files(CROPPED, "../test_dataset/cache/cropped_2023_07_22_04:54.pkl")
+    # data_loader.load_backgrounds(0).load_components()
 
     # component
     # data_loader = DataLoader.initialise(args.img_path).load_raw_components()

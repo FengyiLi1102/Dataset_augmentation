@@ -10,8 +10,6 @@ from src.utils import mkdir_if_not_exists
 
 
 class Background(Image):
-    texture: str  # clean, noisy, messy
-
     background_textures = ["clean", "noisy", "noisyL", "messy"]
 
     def __init__(self,
@@ -20,6 +18,8 @@ class Background(Image):
                  img: np.array = None,
                  img_name: str = None):
         super().__init__(img_path=img_path, img=img, image_name_ext=img_name)
+        self.texture: str  # clean, noisy, messy
+
         # classify into different textures
         self.texture = re.split("[_.]", self.img_name)[1]
 

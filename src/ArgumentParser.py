@@ -136,6 +136,10 @@ class ArgumentParser:
                                  help="augmentation: require training_ratio to split the dataset into proper DOTA "
                                       " format \n"
                                       "simple: only augment the dataset with images and labels")
+        self.parser.add_argument("--n_chip",
+                                 type=int,
+                                 default=1,
+                                 help="Number of DNA origami in one background")
         self.parser.add_argument("--training_ratio",
                                  type=np.int8,
                                  nargs=3,
@@ -165,11 +169,16 @@ class ArgumentParser:
                                              "-dp", "test_dataset",
                                              "--bg_number", '10',
                                              "--aug_number", '10',
-                                             "--cache_bg_type", "fake_bg",
-                                             "--cache_bg_path", "test_dataset/backgrounds_2023_07_15_20:10.pkl"])
+                                             ])
 
     @classmethod
-    def test_aug(cls):
+    def test_aug(cls, function):
         arg_parser = cls()
 
-        return arg_parser.parser.parse_args()
+        return arg_parser.parser.parse_args(["--function", f"{function}",
+                                             "-ip", "../data",
+                                             "-sp", "../test_dataset",
+                                             "-dp", "../test_dataset",
+                                             "--bg_number", '10',
+                                             "--aug_number", '10',
+                                             "--n_chip", '5'])

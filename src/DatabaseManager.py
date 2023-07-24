@@ -124,7 +124,7 @@ class DatabaseManager:
             training_dataset_name: "Image_name"
         }
 
-        # for directory-based querying condition template
+        # table names of those tables which are currently activated
         self.current_all_tables = self.fixed_tables + [training_dataset_name]
 
         for table_name in self.current_all_tables:
@@ -326,6 +326,8 @@ class DatabaseManager:
             # both do noe exist, delete all records
             self.drop_all()
 
+        self.__reindex()
+
     def __scan_cache(self, cache_type: str, cache_path: str):
         with open(cache_path, "rb") as f:
             # name [str] : Background / Component / Image / AugmentedImage
@@ -455,6 +457,7 @@ class DatabaseManager:
                 # for existing image extraction we do not know the raw image where it comes from
                 column_values.insert(1, "N/A")  # Raw image
                 column_values.insert(2, img_name_ext.split("_")[1])  # Morphology
+                print(column_values)
         else:
             infos = img_name_ext[: -4].split("_")
 
@@ -527,10 +530,17 @@ class DatabaseManager:
                 raise Exception(
                     f"Given {e}, more than one {cache_type} is given in the directory {cache_path.split('/')[-2]}")
 
+    def __reindex(self):
+        for table_name in self.current_all_tables:
+            self.__cursor.execute(f"REINDEX {table_name}")
+            self.__db_connection.commit()
+
+        logger.info(">>> Re-index all active tables}")
+
 
 if __name__ == "__main__":
     dbm = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
-    dbm.scan_and_update("../test_dataset", "../data")
+    dbm.scan_and_update("../test_dataset", "../data", load_cache=False)
     # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data", load_cache=False)
     # dbm.drop_all()
     dbm.close_connection()
