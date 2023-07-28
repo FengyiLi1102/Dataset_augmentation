@@ -179,6 +179,7 @@ class ArgumentParser:
                                              "-ip", "../data",
                                              "-sp", "../test_dataset",
                                              "-dp", "../test_dataset",
+                                             "--dataset_name", "three_chip_dataset",
                                              "--bg_number", '10',
                                              "--aug_number", '10',
-                                             "--n_chip", '5'])
+                                             "--n_chip", '3'])

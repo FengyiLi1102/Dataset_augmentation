@@ -1,6 +1,6 @@
 import os.path
 import re
-from typing import Union
+from typing import Union, List
 
 import cv2
 import numpy as np
@@ -14,10 +14,8 @@ class Background(Image):
 
     def __init__(self,
                  img_path: Union[str, None],
-                 mosaic_size: int = 0,
-                 img: np.array = None,
-                 img_name: str = None):
-        super().__init__(img_path=img_path, img=img, image_name_ext=img_name)
+                 mosaic_size: int = 0):
+        super().__init__(img_path=img_path)
         self.texture: str  # clean, noisy, messy
 
         # classify into different textures
@@ -28,11 +26,13 @@ class Background(Image):
 
     @staticmethod
     def draw_box(save_name: str,
-                 background_img: np.array,
-                 label: np.array,
+                 background_img: np.ndarray,
+                 labels: List[np.ndarray],
                  save_dir: str = "../debug"):
         mkdir_if_not_exists(save_dir)
 
-        pts = label.reshape((-1, 1, 2)).astype(np.int32)
-        cv2.polylines(background_img, [pts], True, (0, 0, 255), 2)
+        for label in labels:
+            pts = label.reshape((-1, 1, 2)).astype(np.int32)
+            cv2.polylines(background_img, [pts], True, (0, 0, 255), 2)
+
         cv2.imwrite(os.path.join(save_dir, f"debug_{save_name}.png"), background_img)

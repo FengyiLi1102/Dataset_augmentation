@@ -1,4 +1,3 @@
-import hashlib
 import math
 import os.path
 import pickle
@@ -19,7 +18,7 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED
+from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED, TESTING
 from src.DNALogging import DNALogging
 from src.utils import mkdir_if_not_exists
 
@@ -111,7 +110,7 @@ class Augmentor:
         try:
             for operation in task_in_row:
                 augmented_images.append(Augmentor.operate(operation, random.choice(mosaics_pool)))
-        except IndexError as e:
+        except IndexError:
             raise Exception(f"Not enough mosaics loaded: only with {len(mosaics_pool)}")
 
         h_concat_images = augmented_images[0]
@@ -358,10 +357,12 @@ class Augmentor:
         background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
 
-        my_hash = None
-
-        if task_assigner.n_chip > 1:
-            my_hash = hashlib.sha256()
+        my_hash = None  # generate name for multiple-embedded images
+        split_to_folder = {
+            TRAINING: "train",
+            VALIDATION: "val",
+            TESTING: "test"
+        }
 
         # Debug: display each task information
         if debug:
@@ -381,10 +382,10 @@ class Augmentor:
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
 
-            save_names: List[str] = []
-            final_img = background_img
-            final_labels: List[np.array] = []
+            augmented_img = background_img
+            final_labels: List[np.ndarray] = []
             db_records: List[Dict[str]] = []
+            pos_recorder: np.ndarray = np.zeros(augmented_img.shape[: 2])
 
             # for each origami chip
             for idx in range(task_assigner.n_chip):
@@ -469,23 +470,10 @@ class Augmentor:
 
                 # position
                 # TODO: check overlap with other chips
-                task.position.insert(idx, Augmentor.__random_position(component_img.shape[: 2], background_size))
-
-                this_position = task.position[idx]
-
-                # if the component lies out of the background, generate another position
-                if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], this_position):
-                    print(task)
-                    raise Exception(f"Error: Component falls out of the mosaic.")
-
-                # generate the image name
-                name_placeholder = f"{this_component_id}_{task.background_id}_{this_required_scale:.2f}_{this_flip}_" \
-                                   f"{this_rotation}"
-                save_names.append(name_placeholder)
 
                 # Embed the component on the background
-                final_img, final_label = Augmentor.__embed_component(component_img, component_label, final_img,
-                                                                     this_position)
+                augmented_img, final_label, pos_recorder = Augmentor.__embed_component(component_img, component_label,
+                                                                                       augmented_img, pos_recorder)
                 final_labels.append(final_label)
 
                 # add new records for updating the database
@@ -499,30 +487,36 @@ class Augmentor:
 
                 db_records.append(new_record)
 
-                # debug: show final result
-                if debug:
-                    Background.draw_box(name_placeholder, final_img, final_label)
-
             # Save the image and its labels to the category it belongs to (training, validation, testing)
             category: str = ""
 
             if task_assigner.mode == AUGMENTATION:
-                if task.split == TRAINING:
-                    category = "train"
-                elif task.split == VALIDATION:
-                    category = "val"
-                else:
-                    category = "test"
+                category = split_to_folder[task.split]
 
-            if len(save_names) == 1:
-                save_name = "augmented_" + save_names[0]
-            else:
-                my_hash.update(", ".join(save_names).encode())
-                save_name = my_hash.hexdigest()
+            # generate the image name
+            save_name = "augmented_" + str(db_records[0]["Background_id"])
+            component_id_str = []
+            scale_str = []
+            flip_str = []
+            rotate_str = []
+
+            for chip in db_records:
+                component_id_str.append(str(chip["Component_id"]))
+                scale_str.append(str(chip["Component_scale"]))
+                flip_str.append(chip["Flip"])
+                rotate_str.append(str(chip["Rotate"]))
+
+            for value_list in [component_id_str, scale_str, flip_str, rotate_str]:
+                save_name += "_"
+                save_name += ",".join(value_list)
+
+            # debug: show final result
+            if debug:
+                Background.draw_box(save_name, augmented_img, final_labels)
 
             # images
             save_name_png = f"{save_name}.png"
-            cv2.imwrite(os.path.join(save_path_root, category, "images", save_name_png), final_img)
+            cv2.imwrite(os.path.join(save_path_root, category, "images", save_name_png), augmented_img)
 
             # labels
             save_name_txt = f"{save_name}.txt"
@@ -548,7 +542,7 @@ class Augmentor:
 
             # add it into the cache
             fast_create_data = {
-                "img": final_img,
+                "img": augmented_img,
                 "img_name": save_name_png,
                 "label": final_labels,
                 "data": db_records
@@ -590,16 +584,6 @@ class Augmentor:
             logger.info(f"Directory {save_path} is created")
 
     @staticmethod
-    def __random_position(component_size: Tuple[int, int], background_size: int) -> Tuple[int, int]:
-        img_height, img_width = component_size
-
-        # half of the diagonal as the minimum distance from the centre of the component to the edge of the mosaic
-        half_diagonal = math.ceil(math.sqrt(img_height ** 2 + img_width ** 2) / 2)
-        min_domain, max_domain = half_diagonal, background_size - half_diagonal
-
-        return int(random.uniform(min_domain, max_domain)), int(random.uniform(min_domain, max_domain))
-
-    @staticmethod
     def __is_larger(component_img: np.array,
                     background_img: np.array,
                     error_flag: bool = False) -> bool:
@@ -615,6 +599,13 @@ class Augmentor:
     def __is_out(component_size: Tuple[int, int],
                  background_size: Tuple[int, int],
                  position: Tuple[int, int]) -> bool:
+        """
+
+        :param component_size:
+        :param background_size:
+        :param position: y, x
+        :return:
+        """
         half_height, half_width = [math.ceil(n) for n in np.divide(component_size, 2)]
         pos_y, pos_x = position
         height_domain, width_domain = background_size
@@ -652,26 +643,112 @@ class Augmentor:
         return img
 
     @staticmethod
+    def __random_position(component_img: np.ndarray,
+                          background_size: int,
+                          pos_recorder: np.ndarray) -> Tuple[int, int, np.ndarray]:
+        img_height, img_width = component_img.shape[: 2]
+
+        """
+        First limitation:
+        ----------------------------- 
+        |                           |
+        |    ...................    |
+        |    .                 .    |
+        |    ...................    |
+        |                           |
+        -----------------------------
+        The component image cannot fall out of the background
+        """
+        min_domain_h, max_domain_h = img_height / 2, background_size - (img_height / 2)
+        min_domain_w, max_domain_w = img_width / 2, background_size - (img_width / 2)
+
+        updated_position_recorder = pos_recorder.copy()
+
+        # avoid to generate a centre falling into the existing chips
+        while True:
+            new_x, new_y = int(random.uniform(min_domain_w, max_domain_w)), \
+                int(random.uniform(min_domain_h, max_domain_h))
+
+            if updated_position_recorder[new_y, new_x] > 0:
+                continue
+            else:
+                """
+                Second limitation:
+                +------------------------------+
+                |                              |
+                |                              |
+                |               /\             |
+                |              /  \            |
+                |              \  /            |
+                |               \/             |
+                |                              |
+                |        /\                    |
+                |       /  \                   |
+                |       \  /                   |
+                |        \/                    |
+                |                              |
+                |                              |
+                +------------------------------+
+                The component image cannot overlap with existing ones
+                """
+                # extract the actual region occupied by the chip
+                gray_scale_img = cv2.cvtColor(component_img, cv2.COLOR_BGR2GRAY)
+                _, mask = cv2.threshold(gray_scale_img, 1, 255, cv2.THRESH_BINARY)
+                bool_mask = mask == 255
+
+                topLeft_corner_y = new_y - img_height // 2
+                topLeft_corner_x = new_x - img_width // 2
+
+                compared_pos_recorder = np.zeros((background_size, background_size))
+
+                # find the current occupied region in the augmented image
+                compared_pos_recorder[topLeft_corner_y: topLeft_corner_y + img_height,
+                topLeft_corner_x: topLeft_corner_x + img_width][bool_mask] += 1
+
+                # temporary array to compare with the existing one
+                _, compared_pos_recorder = cv2.threshold(compared_pos_recorder, 0, 255, cv2.THRESH_BINARY)
+
+                overlap = cv2.bitwise_and(updated_position_recorder, compared_pos_recorder)
+
+                if np.any(overlap):
+                    continue
+                else:
+                    updated_position_recorder[topLeft_corner_y: topLeft_corner_y + img_height,
+                    topLeft_corner_x: topLeft_corner_x + img_width][bool_mask] += 1
+                    return new_x, new_y, updated_position_recorder
+
+    @staticmethod
     def __embed_component(component_img: np.array,
                           component_label: np.array,
                           background_img: np.array,
-                          position: Tuple[int, int]) -> Tuple[np.array, np.array]:
-        new_centre_x, new_centre_y = position
+                          position_recorder: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        # TODO: for n x n -> stitch by the label box -> fake cropped chips -> embed on the backgrounds
+        updated_position_recorder = position_recorder.copy()
+
+        new_centre_x, new_centre_y, updated_position_recorder = \
+            Augmentor.__random_position(component_img,
+                                        background_img.shape[0],
+                                        updated_position_recorder)
+
         topLeft_corner_y = new_centre_y - component_img.shape[0] // 2
         topLeft_corner_x = new_centre_x - component_img.shape[1] // 2
 
         mask = cv2.cvtColor(component_img, cv2.COLOR_BGR2GRAY)
-
-        # black regions in the component -> black
+        # black regions in the component (due to the rotation of the component) -> black
         # non-black region -> white
         _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+
+        # if the component lies out of the background, generate another position
+        # if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], (new_centre_y, new_centre_x)):
+        #     raise Exception(f"Error: Component falls out of the mosaic.")
 
         # invert this mask: black region -> white; non-black region -> black
         mask_inv = cv2.bitwise_not(mask)
 
-        # Apply the inverted mask to the mosaic itself
-        # Black regions in the component -> pass
-        # Component -> blocked
+        # Apply the inverted mask to the background itself
+        # Black regions in the component -> region in the background passes
+        # component image -> region in the background is blocked
+        # replace the black region in the component with the one in the background
         bg_and_mask_inv = cv2.bitwise_and(background_img[
                                           topLeft_corner_y: topLeft_corner_y + component_img.shape[0],
                                           topLeft_corner_x: topLeft_corner_x + component_img.shape[1]
@@ -681,30 +758,44 @@ class Augmentor:
                                           topLeft_corner_x: topLeft_corner_x + component_img.shape[1]
                                           ],
                                           mask=mask_inv)
-        # Black region -> block
-        # Non-black region -> pass
+
+        # Black region in the component -> blocked
+        # Non-black region (component image) -> passes
+        # fill in the background with the actual component image
         img_and_mask = cv2.bitwise_and(component_img, component_img, mask=mask)
 
-        # Add two images: black regions in the component replaced by the mosaic and leave the component
+        # Add two images: black regions in the component replaced by the background and leave the component
         result = cv2.add(bg_and_mask_inv, img_and_mask)
 
         # TODO: smooth the seam at boundaries
-        # Place the result back into the mosaic
+        # Place the result back into the background
         background_img[
         topLeft_corner_y: topLeft_corner_y + component_img.shape[0],
-        topLeft_corner_x: topLeft_corner_x + component_img.shape[1]
-        ] = result
+        topLeft_corner_x: topLeft_corner_x + component_img.shape[1]] = result
 
         # label
         component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
-        component_label = component_label_centre + np.array(position)
+        component_label = component_label_centre + np.array((new_centre_x, new_centre_y))
 
-        return background_img, component_label
+        return background_img, component_label, position_recorder
+
+    @staticmethod
+    def __find_corners(mask: np.ndarray) -> np.ndarray:
+        """"""
+        """
+        cv2.RETR_TREE: retrieval mode creates a hierarchy of contours, 
+        cv2.CHAIN_APPROX_SIMPLE: compresses horizontal, vertical, and diagonal segments -> leaves only their end points
+        """
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        coordinates = contours[0].reshape(-1, 4, 2)  # (x ,y) <-> width, height
+        # coordinates[:, [0, 1]] = coordinates[:, [1, 0]]  # (y, x)
+
+        return coordinates
 
 
 if __name__ == "__main__":
     args = ArgumentParser.test_aug(RUN)
-    db = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
+    db = DatabaseManager("../data/DNA_augmentation", training_dataset_name=args.dataset_name)
     db.scan_and_update("../test_dataset", "../data")
 
     data_loader = DataLoader.initialise(save_path=args.save_path,

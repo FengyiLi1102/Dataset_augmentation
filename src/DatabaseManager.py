@@ -12,9 +12,10 @@ from typing import Dict, List, Union, Tuple
 import cv2
 from rich.progress import track
 
+from ArgumentParser import ArgumentParser
 from src.AugmentedImage import AugmentedImage
 from src.DNALogging import DNALogging
-from src.constant import BACKGROUND, COMPONENT, AUGMENTED, MOSAICS, CROPPED, RAW
+from src.constant import BACKGROUND, COMPONENT, AUGMENTED, MOSAICS, CROPPED, RAW, RUN
 from src.utils import mkdir_if_not_exists
 
 # logging
@@ -272,6 +273,10 @@ class DatabaseManager:
                         cache_dir: str = "cache"):
         # TODO: double load the cache in order to update the table (pref)
 
+        # clean all active tables
+        for table_name in self.current_all_tables:
+            self.select_table(table_name).delete_all_rows()
+
         # check if provided background mosaics and raw images for cropping exist
         raw_data_exist = self.__directory_to_table(data_path, [MOSAICS, RAW])
 
@@ -286,11 +291,11 @@ class DatabaseManager:
 
             # update based on the cache files
             if load_cache:
-                logger.info(f">>> Scan based on the cache files")
+                logger.info(f">>> Scan cache files")
                 caches_paths = glob.glob(os.path.join(dataset_root_path, cache_dir, "*.pkl")) + \
                                glob.glob(os.path.join(data_path, cache_dir, "*.pkl"))
 
-                self.__check_cache_files(caches_paths)
+                caches_paths = self.__check_cache_files(caches_paths)
 
                 for cache_path in caches_paths:
                     cache_type = re.match(r"(.*?)_\d{4}_.*", cache_path.split("/")[-1]).group(1)
@@ -298,6 +303,7 @@ class DatabaseManager:
                     # update the corresponding table
                     logger.info(f">>> Scan and update table {cache_type} from {cache_path}")
                     self.__scan_cache(cache_type, cache_path)
+                    logger.info(f">>> Finish updating table {cache_type}")
 
                     # finish updating and remove
                     all_tables.remove(cache_type)
@@ -306,7 +312,7 @@ class DatabaseManager:
                 for table_name in all_tables:
                     self.select_table(table_name).delete_all_rows()
             else:
-                logger.info(f">>> Scan based on existing images in directories")
+                logger.info(f">>> Scan existing images in directories")
 
                 # based on the existing images in the directory
                 for table_name in all_tables:
@@ -323,10 +329,10 @@ class DatabaseManager:
                     else:
                         self.__scan_directory(table_name, os.path.join(load_path, table_name))
         else:
-            # both do noe exist, delete all records
+            # both do not exist, delete all records
             self.drop_all()
 
-        self.__reindex()
+        # self.__reindex()
 
     def __scan_cache(self, cache_type: str, cache_path: str):
         with open(cache_path, "rb") as f:
@@ -336,19 +342,35 @@ class DatabaseManager:
         name_tag = self.prefix_name[cache_type]
 
         for name, image in dataset.items():
-            if not self.select_table(cache_type).query_data(f"{name_tag} = '{name}'"):
-                # not in the table and update it
-                added_data = self.__scan_cache_helper(cache_type, image)
-                self.select_table(cache_type).insert_data(**added_data)
+            # if not self.select_table(cache_type).query_data(f"{name_tag} = '{name}'"):
+            # not in the table and update it
+            added_data = self.__scan_cache_helper(cache_type, image)
 
-        # delete invalid records in the database
-        cached_images = ', '.join(f"'{value}'" for value in list(dataset.keys()))
-        self.select_table(cache_type).delete_row(f"{name_tag} NOT IN ({cached_images})")
+            if cache_type != self.training_dataset_name:
+                self.select_table(cache_type).insert_data(**added_data)
+            else:
+                for data_dict in added_data:
+                    self.select_table(cache_type).insert_data(**data_dict)
+
+        # # delete invalid records in the database
+        # cached_images = ', '.join(f"'{value}'" for value in list(dataset.keys()))
+        # self.select_table(cache_type).delete_row(f"{name_tag} NOT IN ({cached_images})")
 
     def __scan_cache_helper(self,
                             table_name: str,
-                            image: Union[BACKGROUND, COMPONENT, AugmentedImage]) -> Dict[str, Union[int, float, str]]:
+                            image: Union[BACKGROUND, COMPONENT, AugmentedImage]) \
+            -> Union[Dict[str, Union[int, float, str]], List[Dict[str, Union[int, float, str]]]]:
         table_cols = self.select_table(table_name).__get_column_names(drop=True)
+
+        if table_name == self.training_dataset_name:
+            db_update_data = []
+
+            for idx in range(len(image.component_id)):
+                # Image_name, Category, Component_id, Background_id, Component_scale, Flip, Rotate, LabelTxt
+                db_update_data.append(dict(zip(table_cols, [image.img_name, image.category, image.component_id[idx],
+                                                            image.background_id, image.scale[idx], image.flip[idx],
+                                                            image.rotate[idx], image.label_name])))
+            return db_update_data
 
         if table_name == BACKGROUND:
             # Background_name, Texture
@@ -359,13 +381,9 @@ class DatabaseManager:
         elif table_name == RAW:
             # Image_name, Height, Width
             table_values = [image.img_name, image.img_size[0], image.img_size[1]]
-        elif table_name == CROPPED:
-            # Raw_image, Sample, Texture, Height, Width
-            table_values = [image.img_name, "N/A", image.morphology, image.img_size[0], image.img_size[1]]
         else:
-            # Image_name, Category, Component_id, Background_id, Component_scale, Flip, Rotate, LabelTxt
-            table_values = [image.img_name, image.category, image.component_id, image.background_id, image.scale,
-                            image.flip, image.rotate, image.label_name]
+            # Raw_image, Sample, Morphology, Height, Width
+            table_values = [image.img_name, "N/A", image.morphology, image.img_size[0], image.img_size[1]]
 
         return dict(zip(table_cols, table_values))
 
@@ -390,7 +408,6 @@ class DatabaseManager:
 
         imgs_paths, labels_paths = self.__img_label_directory(table_name, dataset_path, training_flag)
         query_columns = self.select_table(table_name).__get_column_names(drop=True)
-        condition_template = self.condition_templates[table_name]
 
         for imgs_path in imgs_paths:
             if not os.path.exists(imgs_path):
@@ -399,7 +416,6 @@ class DatabaseManager:
             else:
                 logger.info(f">>> Scan in {imgs_path}")
 
-                records_kept = []  # local existing images
                 category = None  # only for ML dataset
 
                 if table_name == self.training_dataset_name:
@@ -408,37 +424,63 @@ class DatabaseManager:
                 for img_path in track(glob.glob(os.path.join(imgs_path, "*.png"))):
                     img_name_ext = img_path.split("/")[-1]
 
-                    # for query the record in the database
-                    condition = condition_template.format(img_name_ext)
-
-                    # later on to delete records in the table not corresponding to the existing files
-                    records_kept.append(img_name_ext)
-
-                    # query the database and if the image is not there add it
-                    if not self.select_table(table_name).query_data(condition):
-                        new_record = self.__form_img_dir_query_con(table_name, img_path, query_columns,
-                                                                   category=category)
+                    # # for query the record in the database
+                    # condition = condition_template.format(img_name_ext)
+                    #
+                    # # later on to delete records in the table not corresponding to the existing files
+                    # records_kept.append(img_name_ext)
+                    #
+                    # # query the database and if the image is not there add it
+                    # if not self.select_table(table_name).query_data(condition):
+                    if table_name != self.training_dataset_name:
+                        new_record = self.__form_img_dir_query_con(table_name, img_path, query_columns)
 
                         # insert new records
                         self.select_table(table_name).insert_data(**new_record)
+                    else:
+                        new_records = self.__form_img_dir_query_con(table_name, img_path, query_columns,
+                                                                    category=category)
 
-                # delete records that no corresponding images exist in the directory
-                records_kept = ', '.join(f"'{value}'" for value in records_kept)
+                        for new_record in new_records:
+                            self.select_table(table_name).insert_data(**new_record)
 
-                if table_name != self.training_dataset_name:
-                    self.select_table(table_name).delete_row(f"{query_columns[0]} NOT IN ({records_kept})")
-                else:
-                    # augmented
-                    self.select_table(table_name).delete_row(
-                        f"Category = '{category}' AND {query_columns[0]} NOT IN ({records_kept})")
+                # # delete records that no corresponding images exist in the directory
+                # records_kept = ', '.join(f"'{value}'" for value in records_kept)
+                #
+                # if table_name != self.training_dataset_name:
+                #     self.select_table(table_name).delete_row(f"{query_columns[0]} NOT IN ({records_kept})")
+                # else:
+                #     # augmented
+                #     self.select_table(table_name).delete_row(
+                #         f"Category = '{category}' AND {query_columns[0]} NOT IN ({records_kept})")
 
-    @staticmethod
-    def __form_img_dir_query_con(table_name: str,
+    def update_extra(self):
+        # TODO: provide extra data in images or cache format, update the database accordingly
+        pass
+
+    def __form_img_dir_query_con(self,
+                                 table_name: str,
                                  img_path: str,
                                  query_columns: List[str],
-                                 category: str = None) -> Dict:
-        column_values = []
+                                 category: str = None) -> Union[Dict, List[Dict]]:
         img_name_ext = img_path.split("/")[-1]
+
+        if table_name == self.training_dataset_name:
+            infos = [values.split(",") for values in img_name_ext[: -4].split("_")]
+            conditions = []
+            # background id, component id, scale, flip, rotation, labelTxt
+            # augmented_10_11,12_1.1,1.2_h,v_110,-110
+            # [........, .., ....., ....., ......, ......]
+
+            for idx in range(len(infos[2])):
+                column_values = [img_name_ext, category, int(infos[2][idx]), int(infos[1][0]), float(infos[3][idx]),
+                                 infos[4][idx], int(infos[5][idx]), img_name_ext[:-4] + ".txt"]
+
+                conditions.append(dict(zip(query_columns, column_values)))
+
+            return conditions
+
+        column_values = []
         height, width = cv2.imread(img_path).shape[: 2]
 
         column_values.append(img_name_ext)  # Background_name / Mosaic name / Image name / Sample
@@ -457,18 +499,8 @@ class DatabaseManager:
                 # for existing image extraction we do not know the raw image where it comes from
                 column_values.insert(1, "N/A")  # Raw image
                 column_values.insert(2, img_name_ext.split("_")[1])  # Morphology
-                print(column_values)
         else:
-            infos = img_name_ext[: -4].split("_")
-
-            # component id, mosaic id, scale, flip, rotation, labelTxt
-            column_values.append(category)
-            column_values.append(int(infos[1]))
-            column_values.append(int(infos[2]))
-            column_values.append(float(infos[3]))
-            column_values.append(infos[4])
-            column_values.append(int(infos[5]))
-            column_values.append(img_name_ext[:-4] + ".txt")
+            raise Exception(f"Incorrect table name is given to update the database: given {table_name}")
 
         return dict(zip(query_columns, column_values))
 
@@ -518,29 +550,37 @@ class DatabaseManager:
 
         return result if result is not None else 0
 
-    def __check_cache_files(self, caches_paths):
+    def __check_cache_files(self, caches_paths: List[str]) -> List[str]:
         table_check_list = copy(self.current_all_tables)
+        checked_caches_paths = copy(caches_paths)
 
         for cache_path in caches_paths:
             cache_type = re.match(r"(.*?)_\d{4}_.*", cache_path.split("/")[-1]).group(1)
 
+            # check if the cache file is required (active) or not
+            if cache_type not in self.current_all_tables:
+                checked_caches_paths.remove(cache_path)
+                continue
             try:
                 table_check_list.remove(cache_type)
             except Exception as e:
                 raise Exception(
                     f"Given {e}, more than one {cache_type} is given in the directory {cache_path.split('/')[-2]}")
 
+        return checked_caches_paths
+
     def __reindex(self):
         for table_name in self.current_all_tables:
             self.__cursor.execute(f"REINDEX {table_name}")
             self.__db_connection.commit()
 
-        logger.info(">>> Re-index all active tables}")
+        logger.info(">>> Re-index all active tables")
 
 
 if __name__ == "__main__":
-    dbm = DatabaseManager("../data/DNA_augmentation", training_dataset_name="one_chip_dataset")
-    dbm.scan_and_update("../test_dataset", "../data", load_cache=False)
+    args = ArgumentParser.test_aug(RUN)
+    dbm = DatabaseManager("../data/DNA_augmentation", training_dataset_name=args.dataset_name)
+    dbm.scan_and_update("../test_dataset", "../data", load_cache=True)
     # dbm.scan_and_update(dataset_root_path="../test_dataset", data_path="../data", load_cache=False)
     # dbm.drop_all()
     dbm.close_connection()

@@ -144,6 +144,8 @@ class TaskAssigner:
                 TaskAssigner.choose_texture(CROPPED, args.components, task, db)
 
                 # rescale
+                # TODO: if the number of chips is larger -> the scale of the chip should be smaller -> able to fill
+                # TODO: in the background
                 if args.scaling_mode == "fixed":
                     required_scale = 1
                 elif args.scaling_mode == "random":
@@ -153,7 +155,6 @@ class TaskAssigner:
                 else:
                     raise Exception(f"Error: Incorrect scaling model {args.scaling_mode} is given.")
 
-                # rescale
                 task.required_scale.append(required_scale)
 
                 # flip

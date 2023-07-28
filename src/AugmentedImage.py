@@ -31,19 +31,23 @@ class AugmentedImage(Image):
             self.ext = img_name[-3:]
 
         self._component_id: List[int] = []
-        self._background_id: List[int] = []
+        self._background_id: int = 0
         self._scale: List[float] = []
         self._flip: List[str] = []
         self._rotate: List[int] = []
 
-        for record in data:
-            self._component_id.append(record["Component_id"])
-            self._background_id.append(record["Background_id"])
-            self._scale.append(record["Component_scale"])
-            self._flip.append(record["Flip"])
-            self._rotate.append(record["Rotate"])
+        try:
+            for record in data:
+                self._component_id.append(record["Component_id"])
+                self._background_id = record["Background_id"]
+                self._scale.append(record["Component_scale"])
+                self._flip.append(record["Flip"])
+                self._rotate.append(record["Rotate"])
 
-        self._labelTxt: str = self.img_name + ".txt"
+            self._labelTxt: str = self.img_name + ".txt"
+        except Exception as e:
+            raise Exception(f"Cannot create the Augmented Image object due to the lack of augmented data,"
+                            f" given error {e}")
 
         # labels
         if label_path is not None:
