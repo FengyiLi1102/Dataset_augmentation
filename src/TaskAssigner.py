@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os.path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import numpy as np
 from rich.progress import track
@@ -132,30 +132,37 @@ class TaskAssigner:
         flip_options = ['v', 'h', 'n']
 
         # rotation
+        # TODO: (stitch) same direction
         max_range = 180 + args.rotation_increment
 
         for idx, task in track(enumerate(task_assigner.augmentation_task_pipeline)):
             # Choose Background image by id with textures
             TaskAssigner.choose_texture(BACKGROUND, args.backgrounds, task, db)
 
+            # rescale
+            # for each AFM image, the scale is a fixed value covering the whole image, and there should not be any same
+            # kind of objects with dramatically different scale but can accept tiny change between +/- 0.2
+            # TODO: if the number of chips is larger -> the scale of the chip should be smaller -> able to fill
+            # TODO: in the background
+            if args.scaling_mode == "fixed":
+                required_scale = 1
+            elif args.scaling_mode == "random":
+                # if args.n_chip > 3:
+                #     adapted_max_scale = TaskAssigner.adaptive_scale_generator(task_assigner.n_chip,
+                #                                                               task_assigner.initial_scale, min_scale,
+                #                                                               max_scale)
+                required_scale = random.choice(np.linspace(min_scale, max_scale, num=num_interval))
+            elif args.scaling_mode in ["larger", "smaller"]:
+                required_scale = TaskAssigner.biased_random(args.scaling_mode, min_scale, max_scale, num_interval)
+            else:
+                raise Exception(f"Error: Incorrect scaling model {args.scaling_mode} is given.")
+
+            task.required_scale = required_scale
+
             # given the number of chips in the background
             for n in range(args.n_chip):
                 # Choose Component image by id with textures
                 TaskAssigner.choose_texture(CROPPED, args.components, task, db)
-
-                # rescale
-                # TODO: if the number of chips is larger -> the scale of the chip should be smaller -> able to fill
-                # TODO: in the background
-                if args.scaling_mode == "fixed":
-                    required_scale = 1
-                elif args.scaling_mode == "random":
-                    required_scale = random.choice(np.linspace(min_scale, max_scale, num=num_interval))
-                elif args.scaling_mode in ["larger", "smaller"]:
-                    required_scale = TaskAssigner.biased_random(args.scaling_mode, min_scale, max_scale, num_interval)
-                else:
-                    raise Exception(f"Error: Incorrect scaling model {args.scaling_mode} is given.")
-
-                task.required_scale.append(required_scale)
 
                 # flip
                 task.flip.append(random.choice(flip_options))
@@ -179,6 +186,33 @@ class TaskAssigner:
                         break
 
         return task_assigner
+
+    # @staticmethod
+    # def adaptive_scale_generator(n_chip: int,
+    #                              initial_scale: float,
+    #                              min_s: float,
+    #                              max_s: float) -> Tuple[float, float]:
+    #     """
+    #     When multiple chips are embedded in the background, if the final scale of the chip is too larger, there will be
+    #     hardly possible to find a location to place the chip. Therefore, the scale range for the chip should be modified
+    #     based on the final number of chips in the background.
+    #     :param n_chip:
+    #     :param initial_scale:
+    #     :param min_s:
+    #     :param max_s:
+    #     :return:
+    #     """
+    #     expected_chip_volume = int((1 / initial_scale) ** 2)
+    #
+    #     # this is not mathematical proven but just an assumption
+    #     # chip can rotate, and it may be considered as a circle with the radius as the half of its diagonal
+    #     real_chip_volume = expected_chip_volume / 2
+    #
+    #     if n_chip <= round(real_chip_volume * 0.3):
+    #         return min_s, max_s
+    #     elif n_chip <= round(real_chip_volume * 0.6):
+    #         return
+
 
     @staticmethod
     def equivalence_check_for_one_chip(pipeline: List[Task], scale_interval: float):

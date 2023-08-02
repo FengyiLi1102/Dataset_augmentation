@@ -95,7 +95,7 @@ class ArgumentParser:
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
-                                 default=[0.6, 2.0],
+                                 default=[0.01, 2.0],
                                  help="Scale range for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,

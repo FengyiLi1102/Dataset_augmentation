@@ -32,7 +32,7 @@ class AugmentedImage(Image):
 
         self._component_id: List[int] = []
         self._background_id: int = 0
-        self._scale: List[float] = []
+        self._scale: float = .0
         self._flip: List[str] = []
         self._rotate: List[int] = []
 
@@ -40,7 +40,7 @@ class AugmentedImage(Image):
             for record in data:
                 self._component_id.append(record["Component_id"])
                 self._background_id = record["Background_id"]
-                self._scale.append(record["Component_scale"])
+                self._scale = record["Component_scale"]
                 self._flip.append(record["Flip"])
                 self._rotate.append(record["Rotate"])
 

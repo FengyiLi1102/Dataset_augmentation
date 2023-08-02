@@ -8,6 +8,7 @@ from typing import List, Dict, Union, Tuple
 
 import cv2
 import numpy as np
+from matplotlib import pyplot as plt
 from rich.progress import track
 
 from src.AugmentedImage import AugmentedImage
@@ -357,7 +358,6 @@ class Augmentor:
         background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
 
-        my_hash = None  # generate name for multiple-embedded images
         split_to_folder = {
             TRAINING: "train",
             VALIDATION: "val",
@@ -381,8 +381,9 @@ class Augmentor:
             # background
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
+            this_required_scale = task.required_scale
 
-            augmented_img = background_img
+            augmented_img = background_img.copy()
             final_labels: List[np.ndarray] = []
             db_records: List[Dict[str]] = []
             pos_recorder: np.ndarray = np.zeros(augmented_img.shape[: 2])
@@ -391,7 +392,6 @@ class Augmentor:
             for idx in range(task_assigner.n_chip):
                 # extract the data
                 this_component_id = task.component_id[idx]
-                this_required_scale = task.required_scale[idx]
                 this_flip = task.flip[idx]
                 this_rotation = task.rotation[idx]
 
@@ -423,7 +423,13 @@ class Augmentor:
                     component_label = component.corners
                 else:
                     # new scale
-                    scaled_size = tuple(int(x) for x in np.dot(component.img_size[: 2], this_required_scale))[::-1]
+                    if task_assigner.n_chip > 1:
+                        # chips may have tiny difference on the scale within an acceptable range
+                        this_required_scale = np.abs(np.random.normal(this_required_scale, 0.1))
+
+                    scaled_size = tuple(
+                        int(x) for x in np.dot(component.img_size[: 2], np.sqrt(this_required_scale))
+                    )[::-1]
                     component_img, component_label = component.add_resizing_res(scaled_size, this_required_scale)
 
                 # debug: show resized component with its labels
@@ -468,9 +474,7 @@ class Augmentor:
                     component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
                                        component_label=component_label)
 
-                # position
-                # TODO: check overlap with other chips
-
+                # Generate the random position firstly without overlapping
                 # Embed the component on the background
                 augmented_img, final_label, pos_recorder = Augmentor.__embed_component(component_img, component_label,
                                                                                        augmented_img, pos_recorder)
@@ -646,8 +650,13 @@ class Augmentor:
     def __random_position(component_img: np.ndarray,
                           background_size: int,
                           pos_recorder: np.ndarray) -> Tuple[int, int, np.ndarray]:
-        img_height, img_width = component_img.shape[: 2]
+        """
 
+        :param component_img:
+        :param background_size:
+        :param pos_recorder:
+        :return:
+        """
         """
         First limitation:
         ----------------------------- 
@@ -659,13 +668,20 @@ class Augmentor:
         -----------------------------
         The component image cannot fall out of the background
         """
+        img_height, img_width = component_img.shape[: 2]
         min_domain_h, max_domain_h = img_height / 2, background_size - (img_height / 2)
         min_domain_w, max_domain_w = img_width / 2, background_size - (img_width / 2)
 
         updated_position_recorder = pos_recorder.copy()
 
         # avoid to generate a centre falling into the existing chips
+        counter = 0
         while True:
+            # counter += 1
+
+            # if counter >= 1000:
+            #     raise Exception(f"Too many trials")
+
             new_x, new_y = int(random.uniform(min_domain_w, max_domain_w)), \
                 int(random.uniform(min_domain_h, max_domain_h))
 
@@ -693,38 +709,41 @@ class Augmentor:
                 """
                 # extract the actual region occupied by the chip
                 gray_scale_img = cv2.cvtColor(component_img, cv2.COLOR_BGR2GRAY)
-                _, mask = cv2.threshold(gray_scale_img, 1, 255, cv2.THRESH_BINARY)
+                _, mask = cv2.threshold(gray_scale_img, 0, 255, cv2.THRESH_BINARY)
                 bool_mask = mask == 255
+                compared_pos_recorder = np.zeros((background_size, background_size))
 
                 topLeft_corner_y = new_y - img_height // 2
                 topLeft_corner_x = new_x - img_width // 2
 
-                compared_pos_recorder = np.zeros((background_size, background_size))
-
                 # find the current occupied region in the augmented image
                 compared_pos_recorder[topLeft_corner_y: topLeft_corner_y + img_height,
-                topLeft_corner_x: topLeft_corner_x + img_width][bool_mask] += 1
+                topLeft_corner_x: topLeft_corner_x + img_width][bool_mask] += 255
 
                 # temporary array to compare with the existing one
-                _, compared_pos_recorder = cv2.threshold(compared_pos_recorder, 0, 255, cv2.THRESH_BINARY)
+                _, updated_position_recorder_255 = cv2.threshold(updated_position_recorder, 0, 255, cv2.THRESH_BINARY)
 
-                overlap = cv2.bitwise_and(updated_position_recorder, compared_pos_recorder)
+                overlap = cv2.bitwise_and(updated_position_recorder_255, compared_pos_recorder)
 
                 if np.any(overlap):
                     continue
                 else:
-                    updated_position_recorder[topLeft_corner_y: topLeft_corner_y + img_height,
+                    pos_recorder[topLeft_corner_y: topLeft_corner_y + img_height,
                     topLeft_corner_x: topLeft_corner_x + img_width][bool_mask] += 1
-                    return new_x, new_y, updated_position_recorder
+
+                    # plt.imshow(pos_recorder, cmap='gray', vmin=0, vmax=1)
+                    # plt.show()
+
+                    return new_x, new_y, pos_recorder
 
     @staticmethod
     def __embed_component(component_img: np.array,
                           component_label: np.array,
                           background_img: np.array,
                           position_recorder: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        # TODO: for n x n -> stitch by the label box -> fake cropped chips -> embed on the backgrounds
         updated_position_recorder = position_recorder.copy()
 
+        # TODO: (stitch) position is computed by the label box of the chip
         new_centre_x, new_centre_y, updated_position_recorder = \
             Augmentor.__random_position(component_img,
                                         background_img.shape[0],
@@ -768,6 +787,7 @@ class Augmentor:
         result = cv2.add(bg_and_mask_inv, img_and_mask)
 
         # TODO: smooth the seam at boundaries
+        # TODO: (stitch) later embedded chip cannot cover previous ones
         # Place the result back into the background
         background_img[
         topLeft_corner_y: topLeft_corner_y + component_img.shape[0],
@@ -777,7 +797,7 @@ class Augmentor:
         component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
         component_label = component_label_centre + np.array((new_centre_x, new_centre_y))
 
-        return background_img, component_label, position_recorder
+        return background_img, component_label, updated_position_recorder
 
     @staticmethod
     def __find_corners(mask: np.ndarray) -> np.ndarray:

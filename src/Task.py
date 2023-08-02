@@ -10,7 +10,8 @@ class Task:
 
     def __init__(self):
         self.background_id: int = 0
-        self.required_scale: List[float] = []
+        self.required_scale: float = .0
+
         self.component_id: List[int] = []
         self.position: List[Tuple[int, int]] = []
         self.flip: List[str] = []
