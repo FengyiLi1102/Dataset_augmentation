@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import copy
-from typing import Tuple
+from typing import Tuple, Dict, List
 
 import cv2
 import numpy as np
@@ -36,3 +36,10 @@ class Image:
 
     def set_image(self, image: np.array):
         self.__image = image
+
+    @staticmethod
+    def plot_labels(canvas: np.ndarray, labels: Dict[str, List[np.ndarray]]):
+        for label_type in labels:
+            for i in range(len(labels[label_type])):
+                pts = labels[label_type][i].reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(canvas, [pts], True, (0, 0, 255), 2)

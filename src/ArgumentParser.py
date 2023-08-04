@@ -1,6 +1,9 @@
 import argparse
+from typing import List
 
 import numpy as np
+
+from constant import DNA_ORIGAMI, ACTIVE_SITE
 
 
 class ArgumentParser:
@@ -9,11 +12,13 @@ class ArgumentParser:
     def __init__(self):
         self.parser = argparse.ArgumentParser("Dataset augmentation parameters")
 
+        # ================================================================================================= #
         # Functionality
         self.parser.add_argument("--function", "-f",
                                  choices=["crop_origami", "run", "generate_fake_backgrounds"],
                                  default="run")
 
+        # ========================================= >>> GENERAL <<< ======================================= #
         # General parameters
         self.parser.add_argument("--img_path", "-ip",
                                  type=str,
@@ -35,6 +40,7 @@ class ArgumentParser:
                                  type=str,
                                  default="cache")
 
+        # ====================================== >>> BACKGROUND <<< ======================================= #
         # For generating fake backgrounds without origami chips
         self.parser.add_argument("--cache_bg_type",
                                  type=str,
@@ -66,6 +72,7 @@ class ArgumentParser:
                                  default=5,
                                  help="Averaging kernel size for decease seam visibility")
 
+        # ====================================== >>> COMPONENT <<< ======================================== #
         # For cropping DNA origami from given raw images to make component
         self.parser.add_argument("--cache_chip_type",
                                  type=str,
@@ -84,6 +91,7 @@ class ArgumentParser:
                                  default=300,
                                  help="Extra pixels captured away from the detected DNA origami")
 
+        # ====================================== >>> AUGMENTATION <<< ===================================== #
         # For producing augmentation images
         self.parser.add_argument("--dataset_name",
                                  type=str,
@@ -95,7 +103,7 @@ class ArgumentParser:
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
-                                 default=[0.01, 2.0],
+                                 default=[0.4, 2.0],
                                  help="Scale range for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,
@@ -113,7 +121,7 @@ class ArgumentParser:
                                  default=1000)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
-                                 default="noisy")
+                                 default="clean")
         self.parser.add_argument("--components",
                                  choices=["random", "irregular", "regular", "broken", "sheared"],
                                  default="random")
@@ -121,14 +129,17 @@ class ArgumentParser:
                                  type=int,
                                  default=5)
         self.parser.add_argument("--label",
-                                 type=str,
+                                 choices=[DNA_ORIGAMI, ACTIVE_SITE, "all"],
                                  default="DNA-origami")
         self.parser.add_argument("--difficult",
                                  type=int,
                                  default=0)
         self.parser.add_argument("--debug",
                                  action="store_true")
+        self.parser.add_argument("--cache",
+                                 action="store_true")
 
+        # ====================================== >>> TRAINING <<< ========================================= #
         # Training
         self.parser.add_argument("--mode",
                                  choices=["augmentation", "simple"],
@@ -179,7 +190,23 @@ class ArgumentParser:
                                              "-ip", "../data",
                                              "-sp", "../test_dataset",
                                              "-dp", "../test_dataset",
-                                             "--dataset_name", "three_chip_dataset",
+                                             "--dataset_name", "two_chip_dataset",
                                              "--bg_number", '10',
-                                             "--aug_number", '10',
-                                             "--n_chip", '3'])
+                                             "--aug_number", '3',
+                                             "--n_chip", '2'])
+
+    def find_all_choices(self, param: str) -> List:
+        _choices = None
+
+        for action in self.parser._actions:
+            if action.dest == param:
+                _choices = action.choices
+
+                return _choices
+
+        raise Exception(f"Given parameter {param} is not found.")
+
+
+if __name__ == "__main__":
+    arg_p = ArgumentParser()
+    print(arg_p.find_all_choices("label"))

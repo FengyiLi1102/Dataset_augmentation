@@ -86,17 +86,14 @@ class DataLoader:
 
         logger.info(f">>> Start to load {mode_name}")
 
-        try:
-            if mosaic_size:
-                img_paths = sorted(glob.glob(os.path.join(self.img_root_path, f"{MOSAICS}/*")),
-                                   key=lambda x: int(''.join(filter(str.isdigit, x))))
-                logger.info(f">>> Load {len(img_paths)} background mosaics from {self.img_root_path}/{MOSAICS}")
-            else:
-                img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{BACKGROUND}/*")),
-                                   key=lambda x: int(''.join(filter(str.isdigit, x))))
-                logger.info(f">>> Load {len(img_paths)} existing backgrounds from {self.img_root_path}/{BACKGROUND}")
-        except Exception as e:
-            raise Exception(f"Error: Incorrect information {e} given to load image paths")
+        if mosaic_size:
+            img_paths = sorted(glob.glob(os.path.join(self.img_root_path, f"{MOSAICS}/*")),
+                               key=lambda x: int(''.join(filter(str.isdigit, x))))
+            logger.info(f">>> Load {len(img_paths)} background mosaics from {self.img_root_path}/{MOSAICS}")
+        else:
+            img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{BACKGROUND}/*")),
+                               key=lambda x: int(''.join(filter(str.isdigit, x))))
+            logger.info(f">>> Load {len(img_paths)} existing backgrounds from {self.img_root_path}/{BACKGROUND}")
 
         for img_path in track(img_paths):
             img = Background(img_path, mosaic_size)
@@ -145,9 +142,7 @@ class DataLoader:
             self.name_raw_input[img.img_name] = img  # only for creating the cache
 
         cache_save_path = os.path.join(self.img_root_path, self.cache_save_dir)
-
         mkdir_if_not_exists(cache_save_path)
-
         cache_save_path = os.path.join(cache_save_path, f'{RAW}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
 
         with open(cache_save_path, "wb") as f:
@@ -188,9 +183,7 @@ class DataLoader:
 
         # cache the cropped origami file into pickle for future fast loading
         cache_save_path = os.path.join(self.save_path, self.cache_save_dir)
-
         mkdir_if_not_exists(cache_save_path)
-
         cache_save_path = os.path.join(cache_save_path, f'{CROPPED}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl')
 
         with open(cache_save_path, "wb") as f:

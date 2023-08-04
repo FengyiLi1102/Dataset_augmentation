@@ -3,6 +3,7 @@ import os.path
 import pickle
 import logging
 import random
+from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict, Union, Tuple
 
@@ -21,7 +22,7 @@ from src.Image import Image
 from src.TaskAssigner import TaskAssigner
 from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED, TESTING
 from src.DNALogging import DNALogging
-from src.utils import mkdir_if_not_exists
+from src.utils import mkdir_if_not_exists, process_labels
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -167,36 +168,59 @@ class Augmentor:
             raise Exception(f"Error: Incorrect operation {operation_type} is given")
 
     @staticmethod
-    def __flip(image: np.array,
+    def __flip(img: np.ndarray,
                direction: str,
-               label: np.array = None) -> Tuple[np.array, np.array]:
-        flipped_label = None
+               labels: Dict[str, List[np.ndarray]] = None) \
+            -> Tuple[np.ndarray, Union[Dict[str, List[np.ndarray]], None]]:
+        flipped_labels = None
 
         if direction == 'v':
-            flipped_image = cv2.flip(image, 0)
+            flipped_image = cv2.flip(img, 0)
 
-            if label is not None:
-                flipped_label = np.array([[pos[0], image.shape[0] - pos[1]] for pos in label])
+            if labels is not None:
+                flipped_labels = process_labels(img, labels, Augmentor.__flip_position_v)
         elif direction == 'h':
-            flipped_image = cv2.flip(image, 1)
+            flipped_image = cv2.flip(img, 1)
 
-            if label is not None:
-                flipped_label = np.array([[image.shape[1] - pos[0], pos[1]] for pos in label])
+            if labels is not None:
+                flipped_labels = process_labels(img, labels, Augmentor.__flip_position_h)
         else:
-            flipped_image = image
+            # no flip
+            flipped_image = img
 
-            if label is not None:
-                flipped_label = label
+            if labels is not None:
+                flipped_labels = labels
 
-        return flipped_image, flipped_label
+        return flipped_image, flipped_labels
 
     @staticmethod
-    def __rotate(image: np.array,
+    def __flip_position_v(img: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        return np.array([[pos[0], img.shape[0] - pos[1]] for pos in positions])
+
+    @staticmethod
+    def __flip_position_h(img: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        return np.array([[img.shape[1] - pos[0], pos[1]] for pos in positions])
+
+    # @staticmethod
+    # def process_labels(param: Union[np.ndarray, Tuple[int, int]],
+    #                    labels: Dict[str, List[np.ndarray]],
+    #                    operation_func: Callable) -> Dict[str, List[np.ndarray]]:
+    #     processed_labels = defaultdict(list)
+    #
+    #     for label_type in labels:
+    #         for i in range(len(labels[label_type])):
+    #             processed_labels[label_type].append(operation_func(param, labels[label_type][i]))
+    #
+    #     return processed_labels
+
+    @staticmethod
+    def __rotate(img: np.ndarray,
                  angle: int,
-                 label: np.array = None) -> Union[Tuple[np.array], Tuple[np.array, None]]:
+                 labels: Dict[str, List[np.ndarray]] = None) \
+            -> Union[Tuple[np.ndarray, Dict[str, List[np.ndarray]]], Tuple[np.ndarray, None]]:
         # positive angle -> counter clock-wise
         # negative angle -> clock-wise
-        rows, cols = image.shape[:2]
+        rows, cols = img.shape[:2]
         center = (cols / 2, rows / 2)
         scale = 1.0
         M = cv2.getRotationMatrix2D(center, angle, scale)  # rotation matrix
@@ -211,15 +235,22 @@ class Augmentor:
         M[0, 2] += (new_w / 2) - center[0]
         M[1, 2] += (new_h / 2) - center[1]
 
-        rotated_label = None
-        # if labels given
-        if label is not None:
-            rotation_matrix_2D = M[:, :2]  # 2 x 2
-            _label = label.T  # 2 x 4
-            rotated_label = np.dot(rotation_matrix_2D, _label)  # 2 x 4
-            rotated_label = rotated_label.T + np.array([new_w / 2, new_h / 2])
+        rotated_labels = defaultdict(list)
 
-        return cv2.warpAffine(image, M, (new_w, new_h)), rotated_label
+        # if labels given
+        if labels is not None:
+            rotation_matrix_2D = M[:, :2]  # 2 x 2
+
+            for label_type in labels:
+                for i in range(len(labels[label_type])):
+                    _label = labels[label_type][i].T  # 2 x 4
+                    rotated_label = np.dot(rotation_matrix_2D, _label)  # 2 x 4
+
+                    # refer to the centre of the image
+                    # 4 x 2
+                    rotated_labels[label_type].append(rotated_label.T + np.array([new_w / 2, new_h / 2]))
+
+        return cv2.warpAffine(img, M, (new_w, new_h)), rotated_labels
 
     # NOTE: The following function is adapted from Tejas' previous work.
     # This function was originally written by Tejas Narayan, and I may do some change on it.
@@ -381,10 +412,12 @@ class Augmentor:
             # background
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
-            this_required_scale = task.required_scale
 
             augmented_img = background_img.copy()
-            final_labels: List[np.ndarray] = []
+
+            this_required_scale = task.required_scale
+            this_required_side_scale = np.sqrt(this_required_scale)
+            finished_labels: List[Dict[str, List[np.ndarray]]] = []
             db_records: List[Dict[str]] = []
             pos_recorder: np.ndarray = np.zeros(augmented_img.shape[: 2])
 
@@ -405,11 +438,11 @@ class Augmentor:
 
                     # initial scale
                     component.resize_into(int(component.img_size[1] * adjusted_scale), int(scaled_height))
-                    component.update_resizing(adjusted_scale)
+                    component.update_resizing_res(adjusted_scale)
 
                     component.initial_scale = True
 
-                    # Debug: show initial background images
+                    # Debug: show initial component images
                     if debug:
                         component.draw_box("init")
 
@@ -417,25 +450,24 @@ class Augmentor:
                 if this_required_scale in component.scaled_image:
                     # have rescaled before, directly apply from the storage
                     component_img = component.scaled_image[this_required_scale]
-                    component_label = component.scaled_labels[this_required_scale]
+                    component_labels = component.scaled_labels[this_required_scale]
                 elif this_required_scale == 1.0:
                     component_img = component.read()
-                    component_label = component.corners
+                    component_labels = component.labels
                 else:
                     # new scale
                     if task_assigner.n_chip > 1:
                         # chips may have tiny difference on the scale within an acceptable range
-                        this_required_scale = np.abs(np.random.normal(this_required_scale, 0.1))
+                        this_required_scale = np.abs(np.random.normal(this_required_scale, this_required_scale / 2))
 
-                    scaled_size = tuple(
-                        int(x) for x in np.dot(component.img_size[: 2], np.sqrt(this_required_scale))
-                    )[::-1]
-                    component_img, component_label = component.add_resizing_res(scaled_size, this_required_scale)
+                    # in width and height for cv2.resize
+                    scaled_size = tuple(int(x) for x in np.dot(component.img_size[: 2], this_required_side_scale))[::-1]
+                    component_img, component_labels = component.add_resizing_res(scaled_size, this_required_side_scale)
 
                 # debug: show resized component with its labels
                 if debug:
                     component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
-                                       component_label=component_label)
+                                       component_label=component_labels)
 
                 # check if component is larger than the background
                 Augmentor.__is_larger(component_img, background_img, error_flag=True)
@@ -444,41 +476,40 @@ class Augmentor:
                 if this_flip == "n":
                     # no flip
                     pass
-                elif this_required_scale == 1:
+                elif this_required_scale == 1.0:
                     # just flip without rescale
                     if this_flip in component.flipped_image:
                         # original scale but have flipped before
                         component_img = component.flipped_image[this_flip]
-                        component_label = component.flipped_label[this_flip]
+                        component_labels = component.flipped_label[this_flip]
                     else:
                         # not flipped before
-                        component_img, component_label = cls.__flip(component_img, this_flip,
-                                                                    label=component_label)
-                        component.add_flipping_res(this_flip, component_img, component_label)
+                        component_img, component_labels = cls.__flip(component_img, this_flip, labels=component_labels)
+                        component.add_flipping_res(this_flip, component_img, component_labels)
                 else:
                     # rescaled and flip
-                    component_img, component_label = cls.__flip(component_img, this_flip, label=component_label)
+                    component_img, component_labels = cls.__flip(component_img, this_flip, labels=component_labels)
 
                 # debug: show resized and flipped component with its surrounding box
                 if debug:
                     component.draw_box(f"flipped_{task.flip}", component_img=component_img,
-                                       component_label=component_label)
+                                       component_label=component_labels)
 
                 # rotate
-                component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
-                component_img, component_label = Augmentor.__rotate(component_img, this_rotation,
-                                                                    component_label_centre)
+                component_label_to_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_labels)
+                component_img, component_labels = Augmentor.__rotate(component_img, this_rotation,
+                                                                     component_label_to_centre)
 
                 # debug: show resized, flipped and rotated component with its surrounding box
                 if debug:
                     component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
-                                       component_label=component_label)
+                                       component_label=component_labels)
 
                 # Generate the random position firstly without overlapping
                 # Embed the component on the background
-                augmented_img, final_label, pos_recorder = Augmentor.__embed_component(component_img, component_label,
-                                                                                       augmented_img, pos_recorder)
-                final_labels.append(final_label)
+                augmented_img, final_labels, pos_recorder = Augmentor.__embed_component(component_img, augmented_img,
+                                                                                        component_labels, pos_recorder)
+                finished_labels.append(final_labels)
 
                 # add new records for updating the database
                 new_record = {
@@ -488,8 +519,9 @@ class Augmentor:
                     "Flip": this_flip,
                     "Rotate": this_rotation,
                 }
-
                 db_records.append(new_record)
+
+                # ============================= End of processing one chip =================================== #
 
             # Save the image and its labels to the category it belongs to (training, validation, testing)
             category: str = ""
@@ -516,7 +548,7 @@ class Augmentor:
 
             # debug: show final result
             if debug:
-                Background.draw_box(save_name, augmented_img, final_labels)
+                Background.draw_box(save_name, augmented_img, finished_labels)
 
             # images
             save_name_png = f"{save_name}.png"
@@ -525,16 +557,20 @@ class Augmentor:
             # labels
             save_name_txt = f"{save_name}.txt"
             with open(os.path.join(save_path_root, category, "labelTxt", save_name_txt), "w") as f:
-                for coordinates in final_labels:
-                    # get one coordinate array for the chip
-                    for coordinate in coordinates:
-                        x, y = coordinate
-                        f.write(f"{x:.6f}" + " ")
-                        f.write(f"{y:.6f}" + " ")
+                for one_chip_label in finished_labels:
+                    # get all labels including chip location and active sites for one chip
+                    for label_type, value_list in one_chip_label.items():
+                        # iterate one type of labels
+                        for label in value_list:
+                            # get one label
+                            for coordinates in label:
+                                x, y = coordinates
+                                f.write(f"{x:.6f}" + " ")
+                                f.write(f"{y:.6f}" + " ")
 
-                    f.write(task_assigner.label + " ")
-                    f.write(str(task_assigner.difficult))
-                    f.write("\n")
+                                f.write(label_type + " ")
+                                f.write(str(task_assigner.difficult))
+                                f.write("\n")
 
             # update the database
             for record in db_records:
@@ -548,7 +584,7 @@ class Augmentor:
             fast_create_data = {
                 "img": augmented_img,
                 "img_name": save_name_png,
-                "label": final_labels,
+                "labels": finished_labels,
                 "data": db_records
             }
 
@@ -556,13 +592,14 @@ class Augmentor:
             name_augmented[save_name] = img
 
         # create the cache
-        cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
+        if task_assigner.cache:
+            cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
 
-        mkdir_if_not_exists(cache_save_path)
+            mkdir_if_not_exists(cache_save_path)
 
-        cache_name = f'{task_assigner.dataset_name}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'
-        with open(os.path.join(cache_save_path, cache_name), "wb") as f:
-            pickle.dump(name_augmented, f)
+            cache_name = f'{task_assigner.dataset_name}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'
+            with open(os.path.join(cache_save_path, cache_name), "wb") as f:
+                pickle.dump(name_augmented, f)
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
@@ -737,10 +774,11 @@ class Augmentor:
                     return new_x, new_y, pos_recorder
 
     @staticmethod
-    def __embed_component(component_img: np.array,
-                          component_label: np.array,
-                          background_img: np.array,
-                          position_recorder: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def __embed_component(component_img: np.ndarray,
+                          background_img: np.ndarray,
+                          component_labels: Dict[str, List[np.ndarray]],
+                          position_recorder: np.ndarray) \
+            -> Tuple[np.ndarray, Dict[str, List[np.ndarray]], np.ndarray]:
         updated_position_recorder = position_recorder.copy()
 
         # TODO: (stitch) position is computed by the label box of the chip
@@ -793,36 +831,42 @@ class Augmentor:
         topLeft_corner_y: topLeft_corner_y + component_img.shape[0],
         topLeft_corner_x: topLeft_corner_x + component_img.shape[1]] = result
 
-        # label
-        component_label_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_label)
-        component_label = component_label_centre + np.array((new_centre_x, new_centre_y))
+        # convert labels in the component image reference system from TL to centre
+        component_labels_to_centre = Component.convert_TL_to_centre(component_img.shape[: 2], component_labels)
 
-        return background_img, component_label, updated_position_recorder
+        # convert labels in the background image reference system from centre to TL
+        component_labels = Component.convert_centre_to_TL((new_centre_x, new_centre_y),
+                                                          component_labels_to_centre)
 
-    @staticmethod
-    def __find_corners(mask: np.ndarray) -> np.ndarray:
-        """"""
-        """
-        cv2.RETR_TREE: retrieval mode creates a hierarchy of contours, 
-        cv2.CHAIN_APPROX_SIMPLE: compresses horizontal, vertical, and diagonal segments -> leaves only their end points
-        """
-        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        coordinates = contours[0].reshape(-1, 4, 2)  # (x ,y) <-> width, height
-        # coordinates[:, [0, 1]] = coordinates[:, [1, 0]]  # (y, x)
+        return background_img, component_labels, updated_position_recorder
 
-        return coordinates
+    # @staticmethod
+    # def __find_corners(mask: np.ndarray) -> np.ndarray:
+    #     """"""
+    #     """
+    #     cv2.RETR_TREE: retrieval mode creates a hierarchy of contours,
+    #     cv2.CHAIN_APPROX_SIMPLE: compresses horizontal, vertical, and diagonal segments -> leaves only their end points
+    #     """
+    #     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    #     coordinates = contours[0].reshape(-1, 4, 2)  # (x ,y) <-> width, height
+    #     # coordinates[:, [0, 1]] = coordinates[:, [1, 0]]  # (y, x)
+    #
+    #     return coordinates
 
 
 if __name__ == "__main__":
     args = ArgumentParser.test_aug(RUN)
     db = DatabaseManager("../data/DNA_augmentation", training_dataset_name=args.dataset_name)
-    db.scan_and_update("../test_dataset", "../data")
+    db.scan_and_update("../test_dataset", "../data", load_cache=False)
 
-    data_loader = DataLoader.initialise(save_path=args.save_path,
+    data_loader = DataLoader.initialise(img_path=args.img_path,
+                                        dataset_path=args.dataset_path,
+                                        save_path=args.save_path,
                                         cache_save_dir=args.cache_save_dir)
 
-    data_loader.load_cached_files(BACKGROUND, "../test_dataset/cache/background_2023_07_22_04:54.pkl")
-    data_loader.load_cached_files(CROPPED, "../test_dataset/cache/cropped_2023_07_22_04:54.pkl")
+    data_loader.load_cached_files(BACKGROUND, "../test_dataset/cache/background_2023_08_04_15:32.pkl")
+    data_loader.load_cached_files(CROPPED, "../test_dataset/cache/cropped_2023_08_04_15:32.pkl")
+    #
     # data_loader.load_backgrounds(0).load_components()
 
     # component
@@ -837,6 +881,6 @@ if __name__ == "__main__":
 
     # augmentation
     task_assigner = TaskAssigner.augmented_task(args, db)
-    Augmentor.produce_augmented(data_loader, task_assigner, db)
+    Augmentor.produce_augmented(data_loader, task_assigner, db, args.debug)
 
     db.close_connection()

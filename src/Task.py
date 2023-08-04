@@ -42,11 +42,11 @@ class Task:
         return init_list
 
     def __str__(self):
-        print(f"Background img: {self.background_id}")
+        print(f"Background img: {self.background_id} \n",
+              f"required_scale: {self.required_scale} \n")
 
-        for idx in range(len(self.required_scale)):
-            print(f"required_scale: {self.required_scale[idx]} \n",
-                  f"component img: {self.component_id[idx]} \n",
+        for idx in range(len(self.component_id)):
+            print(f"component img: {self.component_id[idx]} \n",
                   f"flip: {self.flip[idx]} \n",
                   f"rotation: {self.rotation[idx]} \n")
 

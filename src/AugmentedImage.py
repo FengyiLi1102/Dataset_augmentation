@@ -1,8 +1,8 @@
-from typing import List, Union, Dict
+from collections import defaultdict
+from typing import List, Dict
 
 import numpy as np
 
-from src.Component import Component
 from src.Image import Image
 
 
@@ -13,10 +13,10 @@ class AugmentedImage(Image):
                  label_path: str = None,
                  img: np.ndarray = None,
                  img_name: str = None,
-                 label: Union[np.ndarray, List[np.ndarray]] = None,
+                 labels: List[Dict[str, List[np.ndarray]]] = None,
                  data: List[Dict] = None):
         self._category = category
-        self._labels: List[np.ndarray] = []
+        self._labels: Dict[str, List[np.ndarray]] = defaultdict(list)
 
         # image
         if img_path is not None:
@@ -54,19 +54,20 @@ class AugmentedImage(Image):
             # label txt may contain several rows of data for the bounding box
             with open(label_path, "r") as file:
                 for line in file:
-                    coordinates_str = line.split()[: 8]
+                    values = line.strip().split(" ")[: -1]
 
-                    # (x, y) in (width, height) in [[x, y], [x, y], ...] for each chip
-                    self._labels.append(np.array(coordinates_str, dtype=np.float64).reshape(-1, 2))
+                    # (x, y) in (width, height)
+                    # Two objects: DNA-origami and active-site
+                    self._labels[values[-1]].extend(np.array(values[: -1], dtype=np.float64).reshape(-1, 2))
 
-        if label is not None:
+        if labels is not None:
             # multiple chips in one background
-            if type(label) is list:
-                self._labels = label
-            elif type(label) is np.ndarray:
-                self._labels.append(label)
+            if type(labels) is list:
+                for one_chip_label in labels:
+                    for label_type, label in one_chip_label.items():
+                        self._labels[label_type] = label
             else:
-                raise TypeError(f"Incorrect label type is given: expect list or ndarray but get {type(label)}")
+                raise TypeError(f"Incorrect label type is given: expect list or ndarray but get {type(labels)}")
         else:
             raise Exception("Cannot create Augmented Image object due to the lack of label data")
 

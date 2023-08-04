@@ -1,6 +1,6 @@
 import os.path
 import re
-from typing import Union, List
+from typing import Union, List, Dict
 
 import cv2
 import numpy as np
@@ -27,12 +27,12 @@ class Background(Image):
     @staticmethod
     def draw_box(save_name: str,
                  background_img: np.ndarray,
-                 labels: List[np.ndarray],
+                 all_labels: List[Dict[str, List[np.ndarray]]],
                  save_dir: str = "../debug"):
         mkdir_if_not_exists(save_dir)
 
-        for label in labels:
-            pts = label.reshape((-1, 1, 2)).astype(np.int32)
-            cv2.polylines(background_img, [pts], True, (0, 0, 255), 2)
+        for one_chip_label in all_labels:
+            Image.plot_labels(background_img, one_chip_label)
 
         cv2.imwrite(os.path.join(save_dir, f"debug_{save_name}.png"), background_img)
+

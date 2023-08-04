@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os.path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 from rich.progress import track
@@ -16,7 +15,7 @@ import logging
 
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
-from src.constant import BACKGROUND, COMPONENT, CROPPED, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI
+from src.constant import BACKGROUND, CROPPED, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, DNA_ORIGAMI, AUGMENTED
 from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
@@ -49,7 +48,7 @@ class TaskAssigner:
             self.cropping_inflation: int = 0
         else:
             # Augmentation
-            self.dataset_name: str = "augmented"
+            self.dataset_name: str = AUGMENTED
             self.n_chip: int = 1
 
             # [required_scale, background_texture, component_texture, position, flip, rotation]
@@ -59,7 +58,7 @@ class TaskAssigner:
             self.height_domain: int = 0
             self.width_domain: int = 0
 
-            self.label: str = "DNA-origami"
+            self.label: str = DNA_ORIGAMI
             self.difficult: int = 0
 
     @classmethod
@@ -113,10 +112,11 @@ class TaskAssigner:
         task_assigner.mode = args.mode
         task_assigner.dataset_name = args.dataset_name
         task_assigner.save_path = args.save_path
-        task_assigner.label = args.label
         task_assigner.difficult = args.difficult
         task_assigner.cache_save_dir = args.cache_save_dir
         task_assigner.n_chip = args.n_chip
+        task_assigner.label = args.label
+        task_assigner.cache = args.cache
 
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
@@ -124,7 +124,7 @@ class TaskAssigner:
         task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, args.aug_number,
                                                                         args.training_ratio)
 
-        # new scales for the origami
+        # magnify or shrink the origami
         min_scale, max_scale = args.scale_range
         num_interval = int((max_scale - 1) / args.scale_increment + 1)
 
@@ -187,32 +187,31 @@ class TaskAssigner:
 
         return task_assigner
 
-    # @staticmethod
-    # def adaptive_scale_generator(n_chip: int,
-    #                              initial_scale: float,
-    #                              min_s: float,
-    #                              max_s: float) -> Tuple[float, float]:
-    #     """
-    #     When multiple chips are embedded in the background, if the final scale of the chip is too larger, there will be
-    #     hardly possible to find a location to place the chip. Therefore, the scale range for the chip should be modified
-    #     based on the final number of chips in the background.
-    #     :param n_chip:
-    #     :param initial_scale:
-    #     :param min_s:
-    #     :param max_s:
-    #     :return:
-    #     """
-    #     expected_chip_volume = int((1 / initial_scale) ** 2)
-    #
-    #     # this is not mathematical proven but just an assumption
-    #     # chip can rotate, and it may be considered as a circle with the radius as the half of its diagonal
-    #     real_chip_volume = expected_chip_volume / 2
-    #
-    #     if n_chip <= round(real_chip_volume * 0.3):
-    #         return min_s, max_s
-    #     elif n_chip <= round(real_chip_volume * 0.6):
-    #         return
+    @staticmethod
+    def adaptive_scale_generator(n_chip: int,
+                                 initial_scale: float,
+                                 min_s: float,
+                                 max_s: float) -> Tuple[float, float]:
+        """
+        When multiple chips are embedded in the background, if the final scale of the chip is too larger, there will be
+        hardly possible to find a location to place the chip. Therefore, the scale range for the chip should be modified
+        based on the final number of chips in the background.
+        :param n_chip:
+        :param initial_scale:
+        :param min_s:
+        :param max_s:
+        :return:
+        """
+        expected_chip_volume = int((1 / initial_scale) ** 2)
 
+        # this is not mathematical proven but just an assumption
+        # chip can rotate, and it may be considered as a circle with the radius as the half of its diagonal
+        real_chip_volume = expected_chip_volume / 2
+
+        if n_chip <= round(real_chip_volume * 0.3):
+            return min_s, max_s
+        elif n_chip <= round(real_chip_volume * 0.6):
+            return
 
     @staticmethod
     def equivalence_check_for_one_chip(pipeline: List[Task], scale_interval: float):
@@ -225,7 +224,7 @@ class TaskAssigner:
         for previous_task in pipeline[: -1]:
             # same component and similar scale
             if previous_task.component_id[0] == new_added_task.component_id[0] and abs(
-                    previous_task.required_scale[0] - new_added_task.required_scale[0]) <= 2 * scale_interval:
+                    previous_task.required_scale - new_added_task.required_scale) <= 2 * scale_interval:
                 # exactly same flip + rotate
                 if previous_task.flip[0] == new_added_task.flip[0] and previous_task.rotation[0] == \
                         new_added_task.rotation[0]:
