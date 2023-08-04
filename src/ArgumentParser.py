@@ -133,7 +133,7 @@ class ArgumentParser:
         self.parser.add_argument("--n_chip",
                                  type=int,
                                  nargs=2,
-                                 default=[1, 3],
+                                 default=[1, 4],
                                  help="Range of number of chips to embed")
 
         # ====================================== >>> TRAINING <<< ========================================= #
@@ -185,7 +185,7 @@ class ArgumentParser:
                                              "-dp", "../test_dataset",
                                              "--dataset_name", "multi_chip_dataset",
                                              "--bg_number", '10',
-                                             "--aug_number", '50',
+                                             "--aug_number", '5',
                                              "--cache",
                                              "--n_chip", '1', '5'])
 

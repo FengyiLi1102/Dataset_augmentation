@@ -587,9 +587,9 @@ class Augmentor:
                                 f.write(f"{x:.6f}" + " ")
                                 f.write(f"{y:.6f}" + " ")
 
-                                f.write(label_type + " ")
-                                f.write(str(task_assigner.difficult))
-                                f.write("\n")
+                            f.write(label_type + " ")
+                            f.write(str(task_assigner.difficult))
+                            f.write("\n")
 
             # update the database
             for record in db_records:
