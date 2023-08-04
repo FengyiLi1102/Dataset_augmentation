@@ -12,7 +12,7 @@ from typing import Dict, List, Union, Tuple
 import cv2
 from rich.progress import track
 
-from ArgumentParser import ArgumentParser
+from src.ArgumentParser import ArgumentParser
 from src.AugmentedImage import AugmentedImage
 from src.DNALogging import DNALogging
 from src.constant import BACKGROUND, COMPONENT, AUGMENTED, MOSAICS, CROPPED, RAW, RUN

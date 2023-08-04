@@ -9,6 +9,7 @@ from typing import List, Dict, Union, Tuple
 
 import cv2
 import numpy as np
+import tqdm
 from matplotlib import pyplot as plt
 from rich.progress import track
 
@@ -29,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 class Augmentor:
+    # Augmentation
+    patience: int = 0
 
     @classmethod
     def produce_backgrounds(cls,
@@ -386,6 +389,8 @@ class Augmentor:
                           task_assigner: TaskAssigner,
                           db: DatabaseManager,
                           debug: bool = False):
+        cls.patience = task_assigner.patience
+
         background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
         scaled_height = background_size * task_assigner.initial_scale
 
@@ -407,8 +412,11 @@ class Augmentor:
         # cache for future fast loading
         name_augmented: Dict[str, AugmentedImage] = dict()
 
+        # total number of tasks (images) actually finished
+        finished_number: int = 0
+
         logger.info(">>> Start to augment the dataset")
-        for task in track(task_assigner.augmentation_task_pipeline):
+        for task in tqdm.tqdm(task_assigner.augmentation_task_pipeline):
             # background
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
@@ -421,8 +429,10 @@ class Augmentor:
             db_records: List[Dict[str]] = []
             pos_recorder: np.ndarray = np.zeros(augmented_img.shape[: 2])
 
+            skip_flag: bool = False
+
             # for each origami chip
-            for idx in range(task_assigner.n_chip):
+            for idx in range(task.n_chip):
                 # extract the data
                 this_component_id = task.component_id[idx]
                 this_flip = task.flip[idx]
@@ -456,7 +466,7 @@ class Augmentor:
                     component_labels = component.labels
                 else:
                     # new scale
-                    if task_assigner.n_chip > 1:
+                    if task.n_chip > 1:
                         # chips may have tiny difference on the scale within an acceptable range
                         this_required_scale = np.abs(np.random.normal(this_required_scale, this_required_scale / 2))
 
@@ -509,6 +519,11 @@ class Augmentor:
                 # Embed the component on the background
                 augmented_img, final_labels, pos_recorder = Augmentor.__embed_component(component_img, augmented_img,
                                                                                         component_labels, pos_recorder)
+                # Too hard to finish the task, skip this one
+                if augmented_img is None:
+                    skip_flag = True
+                    break
+
                 finished_labels.append(final_labels)
 
                 # add new records for updating the database
@@ -522,6 +537,10 @@ class Augmentor:
                 db_records.append(new_record)
 
                 # ============================= End of processing one chip =================================== #
+
+            # Skip the task
+            if skip_flag:
+                continue
 
             # Save the image and its labels to the category it belongs to (training, validation, testing)
             category: str = ""
@@ -591,6 +610,10 @@ class Augmentor:
             img = AugmentedImage(category, **fast_create_data)
             name_augmented[save_name] = img
 
+            finished_number += 1
+
+            # ====================================== Finish one task ==================================== #
+
         # create the cache
         if task_assigner.cache:
             cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
@@ -600,6 +623,13 @@ class Augmentor:
             cache_name = f'{task_assigner.dataset_name}_{datetime.now().strftime("%Y_%m_%d_%H:%M")}.pkl'
             with open(os.path.join(cache_save_path, cache_name), "wb") as f:
                 pickle.dump(name_augmented, f)
+
+        # statistics
+        expected_num = len(task_assigner.augmentation_task_pipeline)
+        if finished_number != expected_num:
+            logger.warning(f"Totally finish {finished_number} tasks but expected {expected_num}.")
+        else:
+            logger.info(f"Successfully finish all {expected_num} tasks.")
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
@@ -686,7 +716,8 @@ class Augmentor:
     @staticmethod
     def __random_position(component_img: np.ndarray,
                           background_size: int,
-                          pos_recorder: np.ndarray) -> Tuple[int, int, np.ndarray]:
+                          pos_recorder: np.ndarray) \
+            -> Union[Tuple[int, int, np.ndarray], Tuple[None, None, None]]:
         """
 
         :param component_img:
@@ -714,10 +745,9 @@ class Augmentor:
         # avoid to generate a centre falling into the existing chips
         counter = 0
         while True:
-            # counter += 1
-
-            # if counter >= 1000:
-            #     raise Exception(f"Too many trials")
+            counter += 1
+            if counter >= Augmentor.patience:
+                return None, None, None
 
             new_x, new_y = int(random.uniform(min_domain_w, max_domain_w)), \
                 int(random.uniform(min_domain_h, max_domain_h))
@@ -778,7 +808,7 @@ class Augmentor:
                           background_img: np.ndarray,
                           component_labels: Dict[str, List[np.ndarray]],
                           position_recorder: np.ndarray) \
-            -> Tuple[np.ndarray, Dict[str, List[np.ndarray]], np.ndarray]:
+            -> Union[Tuple[np.ndarray, Dict[str, List[np.ndarray]], np.ndarray], Tuple[None, None, None]]:
         updated_position_recorder = position_recorder.copy()
 
         # TODO: (stitch) position is computed by the label box of the chip
@@ -786,6 +816,10 @@ class Augmentor:
             Augmentor.__random_position(component_img,
                                         background_img.shape[0],
                                         updated_position_recorder)
+
+        # Too hard to finish the task
+        if new_centre_x is None:
+            return None, None, None
 
         topLeft_corner_y = new_centre_y - component_img.shape[0] // 2
         topLeft_corner_x = new_centre_x - component_img.shape[1] // 2

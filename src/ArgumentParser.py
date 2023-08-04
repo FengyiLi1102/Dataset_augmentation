@@ -3,8 +3,6 @@ from typing import List
 
 import numpy as np
 
-from constant import DNA_ORIGAMI, ACTIVE_SITE
-
 
 class ArgumentParser:
     parser: argparse.ArgumentParser
@@ -42,15 +40,9 @@ class ArgumentParser:
 
         # ====================================== >>> BACKGROUND <<< ======================================= #
         # For generating fake backgrounds without origami chips
-        self.parser.add_argument("--cache_bg_type",
-                                 type=str,
-                                 choices=["mosaics", "background", "none"],
-                                 default="none",
-                                 help="mosaic: prepared mosaic mosaics; \n"
-                                      "fake_bg: generated fake backgrounds; \n"
-                                      "none: no cache file")
         self.parser.add_argument("--cache_bg_path",
-                                 type=str)
+                                 type=str,
+                                 default="")
         self.parser.add_argument("--background_size", "-bg_size",
                                  type=np.int16,
                                  default=2560,
@@ -74,15 +66,9 @@ class ArgumentParser:
 
         # ====================================== >>> COMPONENT <<< ======================================== #
         # For cropping DNA origami from given raw images to make component
-        self.parser.add_argument("--cache_chip_type",
-                                 type=str,
-                                 choices=["raw", "cropped", "none"],
-                                 default="none",
-                                 help="raw_img: raw AFM images or cropping origami; \n"
-                                      "cropped: cropped origami chip; \n"
-                                      "none: no cache file")
         self.parser.add_argument("--cache_chip_path",
-                                 type=str)
+                                 type=str,
+                                 default="")
         self.parser.add_argument("--config_path", "-cp",
                                  type=str,
                                  default=r"config/params.json")
@@ -121,23 +107,34 @@ class ArgumentParser:
                                  default=1000)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
-                                 default="clean")
+                                 default="random")
         self.parser.add_argument("--components",
                                  choices=["random", "irregular", "regular", "broken", "sheared"],
                                  default="random")
         self.parser.add_argument("--rotation_increment",
                                  type=int,
                                  default=5)
-        self.parser.add_argument("--label",
-                                 choices=[DNA_ORIGAMI, ACTIVE_SITE, "all"],
-                                 default="DNA-origami")
         self.parser.add_argument("--difficult",
                                  type=int,
                                  default=0)
         self.parser.add_argument("--debug",
-                                 action="store_true")
+                                 action="store_true",
+                                 help="Debug mode to see augmentation process with images for each step.")
         self.parser.add_argument("--cache",
-                                 action="store_true")
+                                 action="store_true",
+                                 help="Create a cache for the augmented dataset.")
+        self.parser.add_argument("--patience",
+                                 type=int,
+                                 default=5000,
+                                 help="For multiple chips randomly embedded in the background, if the scale of the"
+                                      " chip is too large, the algorithm will be hard to find a suitable location to"
+                                      " place all of them. Therefore, a step should be set for the while loop to skip"
+                                      " this task if the algorithm takes too long.")
+        self.parser.add_argument("--n_chip",
+                                 type=int,
+                                 nargs=2,
+                                 default=[1, 3],
+                                 help="Range of number of chips to embed")
 
         # ====================================== >>> TRAINING <<< ========================================= #
         # Training
@@ -147,10 +144,6 @@ class ArgumentParser:
                                  help="augmentation: require training_ratio to split the dataset into proper DOTA "
                                       " format \n"
                                       "simple: only augment the dataset with images and labels")
-        self.parser.add_argument("--n_chip",
-                                 type=int,
-                                 default=1,
-                                 help="Number of DNA origami in one background")
         self.parser.add_argument("--training_ratio",
                                  type=np.int8,
                                  nargs=3,
@@ -190,10 +183,11 @@ class ArgumentParser:
                                              "-ip", "../data",
                                              "-sp", "../test_dataset",
                                              "-dp", "../test_dataset",
-                                             "--dataset_name", "two_chip_dataset",
+                                             "--dataset_name", "multi_chip_dataset",
                                              "--bg_number", '10',
-                                             "--aug_number", '3',
-                                             "--n_chip", '2'])
+                                             "--aug_number", '50',
+                                             "--cache",
+                                             "--n_chip", '1', '5'])
 
     def find_all_choices(self, param: str) -> List:
         _choices = None

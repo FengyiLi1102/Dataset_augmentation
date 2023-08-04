@@ -9,6 +9,7 @@ from src.constant import AUGMENTATION, TRAINING, VALIDATION, TESTING, SIMPLE, BA
 class Task:
 
     def __init__(self):
+        self.n_chip: int = 1
         self.background_id: int = 0
         self.required_scale: float = .0
 

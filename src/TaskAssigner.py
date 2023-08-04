@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import numpy as np
 from rich.progress import track
@@ -49,7 +49,6 @@ class TaskAssigner:
         else:
             # Augmentation
             self.dataset_name: str = AUGMENTED
-            self.n_chip: int = 1
 
             # [required_scale, background_texture, component_texture, position, flip, rotation]
             self.initial_scale: float = .0
@@ -58,8 +57,9 @@ class TaskAssigner:
             self.height_domain: int = 0
             self.width_domain: int = 0
 
-            self.label: str = DNA_ORIGAMI
+            self.cache: bool = False
             self.difficult: int = 0
+            self.patience: int = 0
 
     @classmethod
     def background_task(cls,
@@ -109,14 +109,16 @@ class TaskAssigner:
     def augmented_task(cls, args: argparse.Namespace, db: DatabaseManager) -> TaskAssigner:
         task_assigner = cls(args.function)
 
-        task_assigner.mode = args.mode
         task_assigner.dataset_name = args.dataset_name
-        task_assigner.save_path = args.save_path
-        task_assigner.difficult = args.difficult
-        task_assigner.cache_save_dir = args.cache_save_dir
-        task_assigner.n_chip = args.n_chip
-        task_assigner.label = args.label
+        n_chip_l, n_chip_h = args.n_chip
+
         task_assigner.cache = args.cache
+        task_assigner.difficult = args.difficult
+        task_assigner.patience = args.patience
+
+        task_assigner.mode = args.mode
+        task_assigner.save_path = args.save_path
+        task_assigner.cache_save_dir = args.cache_save_dir
 
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
@@ -159,8 +161,11 @@ class TaskAssigner:
 
             task.required_scale = required_scale
 
-            # given the number of chips in the background
-            for n in range(args.n_chip):
+            # generate number of chips in one background
+            n_chip = random.randint(n_chip_l, n_chip_h)
+            task.n_chip = n_chip
+
+            for n in range(n_chip):
                 # Choose Component image by id with textures
                 TaskAssigner.choose_texture(CROPPED, args.components, task, db)
 
@@ -206,12 +211,18 @@ class TaskAssigner:
 
         # this is not mathematical proven but just an assumption
         # chip can rotate, and it may be considered as a circle with the radius as the half of its diagonal
-        real_chip_volume = expected_chip_volume / 2
+        safe_chip_volume = expected_chip_volume / 2
 
-        if n_chip <= round(real_chip_volume * 0.3):
-            return min_s, max_s
-        elif n_chip <= round(real_chip_volume * 0.6):
-            return
+        abs_max_s = round((1/8) / (initial_scale**2), 1)  # reasonable maximum scale
+        abs_min_s = 0.3
+
+        if n_chip <= round(safe_chip_volume * 0.3):
+            r_min_s = min_s if min_s >= abs_min_s else abs_max_s
+            r_max_s = abs_max_s
+            return r_min_s, r_max_s
+        elif n_chip <= round(safe_chip_volume * 0.6):
+            r_max_s = round(1 / round(safe_chip_volume * 0.6) * safe_chip_volume, 1)
+            return abs_min_s, r_max_s
 
     @staticmethod
     def equivalence_check_for_one_chip(pipeline: List[Task], scale_interval: float):
