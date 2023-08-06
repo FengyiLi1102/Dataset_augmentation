@@ -90,7 +90,7 @@ class ArgumentParser:
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
-                                 default=[0.6, 2.0],
+                                 default=[0.4, 2.0],
                                  help="Scale range for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,
@@ -105,7 +105,7 @@ class ArgumentParser:
                                       "smaller -> more scale-down origami")
         self.parser.add_argument("--aug_number",
                                  type=int,
-                                 default=1000)
+                                 default=10)
         self.parser.add_argument("--backgrounds",
                                  choices=["random", "messy", "clean", "noisy", "noisyL"],
                                  default="random")
@@ -126,7 +126,7 @@ class ArgumentParser:
                                  help="Create a cache for the augmented dataset.")
         self.parser.add_argument("--patience",
                                  type=int,
-                                 default=5000,
+                                 default=2500,
                                  help="For multiple chips randomly embedded in the background, if the scale of the"
                                       " chip is too large, the algorithm will be hard to find a suitable location to"
                                       " place all of them. Therefore, a step should be set for the while loop to skip"
