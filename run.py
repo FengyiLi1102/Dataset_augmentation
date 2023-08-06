@@ -71,8 +71,10 @@ def create_cache(args):
         data_loader.load_raw_components()
     elif args.cache_name == MOSAICS:
         data_loader.load_backgrounds(args.mosaic_size)
-    else:
+    elif args.cache_name == BACKGROUND:
         data_loader.load_backgrounds(0)
+    else:
+        raise Exception(f"Error: Unknown cache file type {args.cache_name} is given.")
 
 
 def load_data(path: str, data_loader: DataLoader, is_background: bool):
