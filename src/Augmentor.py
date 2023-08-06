@@ -615,7 +615,6 @@ class Augmentor:
             name_augmented[save_name] = img
 
             finished_number += 1
-            print(finished_number, task_assigner.expected_num)
             if finished_number == task_assigner.expected_num:
                 logger.info(f"Successfully finish target {finished_number} tasks as expected.")
                 break
@@ -635,9 +634,11 @@ class Augmentor:
 
         # statistics
         max_num = task_assigner.max_try
-        if counter == max_num:
-            logger.warning(f"Totally finish {finished_number} tasks but expected {max_num}. \n"
-                           f"The maximum attempt of {max_num} has reached.")
+        if counter > task_assigner.expected_num:
+            logger.warning(f"Totally finish {finished_number} tasks but expected {max_num}.")
+
+            if counter == max_num:
+                logger.warning(f"The maximum attempt of {max_num} has reached.")
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
@@ -907,7 +908,7 @@ if __name__ == "__main__":
                                         cache_save_dir=args.cache_save_dir)
 
     data_loader.load_cached_files(BACKGROUND, "../test_dataset/cache/background_2023_08_04_15:32.pkl")
-    data_loader.load_cached_files(CROPPED, "../test_dataset/cache/cropped_2023_08_04_15:32.pkl")
+    data_loader.load_cached_files(CROPPED, "../test_dataset/cache/cropped_2023_08_06_19:19.pkl")
     #
     # data_loader.load_backgrounds(0).load_components()
 

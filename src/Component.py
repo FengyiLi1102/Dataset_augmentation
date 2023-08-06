@@ -20,7 +20,7 @@ class Component(Image):
         super().__init__(img_path)
 
         self.image_centre: np.array
-        self.chip_centre: Tuple[float, float]
+        self.chip_centre = [0, 0]
 
         # label txt only contains one row of data for the bounding box
         self.labels: Dict[str, List[np.ndarray]] = defaultdict(list)

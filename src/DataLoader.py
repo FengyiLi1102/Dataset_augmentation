@@ -152,13 +152,13 @@ class DataLoader:
 
         return self
 
-    def load_cropped_components(self):
+    def load_cropped_components(self, images: str = "images", labels: str = "labels"):
         logger.info(">>> Start to load cropped components")
 
         try:
-            component_img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/images/*")),
+            component_img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/{images}/*")),
                                          key=lambda x: int(''.join(filter(str.isdigit, x))))
-            component_label_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/labels/*")),
+            component_label_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/{labels}/*")),
                                            key=lambda x: int(''.join(filter(str.isdigit, x))))
         except Exception as e:
             raise Exception(f"Error: Image paths cannot be correctly extracted from given paths with error {e}")
