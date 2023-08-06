@@ -193,7 +193,7 @@ class ArgumentParser:
                                              "--bg_number", '10',
                                              "--aug_number", '20',
                                              "--cache",
-                                             "--n_chip", '1', '1',
+                                             "--n_chip", '5', '10',
                                              "--patience", '2'])
 
     def find_all_choices(self, param: str) -> List:
