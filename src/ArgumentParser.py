@@ -89,7 +89,7 @@ class ArgumentParser:
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
-                                 default=[0.4, 2.0],
+                                 default=[0.6, 2.0],
                                  help="Scale range for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,
@@ -183,11 +183,12 @@ class ArgumentParser:
                                              "-ip", "../data",
                                              "-sp", "../test_dataset",
                                              "-dp", "../test_dataset",
-                                             "--dataset_name", "multi_chip_dataset",
+                                             "--dataset_name", "test",
                                              "--bg_number", '10',
-                                             "--aug_number", '5',
+                                             "--aug_number", '20',
                                              "--cache",
-                                             "--n_chip", '1', '5'])
+                                             "--n_chip", '1', '1',
+                                             "--patience", '2'])
 
     def find_all_choices(self, param: str) -> List:
         _choices = None

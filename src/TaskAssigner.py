@@ -60,6 +60,8 @@ class TaskAssigner:
             self.cache: bool = False
             self.difficult: int = 0
             self.patience: int = 0
+            self.expected_num: int = 0
+            self.max_try: int = 0
 
     @classmethod
     def background_task(cls,
@@ -115,6 +117,10 @@ class TaskAssigner:
         task_assigner.cache = args.cache
         task_assigner.difficult = args.difficult
         task_assigner.patience = args.patience
+        task_assigner.expected_num = args.aug_number
+
+        # maximum number of attempt to finish the target number of tasks
+        task_assigner.max_try = args.aug_number + int(0.3 * args.aug_number)
 
         task_assigner.mode = args.mode
         task_assigner.save_path = args.save_path
@@ -123,7 +129,9 @@ class TaskAssigner:
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
 
-        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, args.aug_number,
+        # TODO: aug_number is a target not a stop-number; patience too large -> 2500
+        # TODO: as the target reaches -> stop
+        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, task_assigner.max_try,
                                                                         args.training_ratio)
 
         # magnify or shrink the origami

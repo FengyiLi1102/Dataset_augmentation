@@ -412,8 +412,8 @@ class Augmentor:
         # cache for future fast loading
         name_augmented: Dict[str, AugmentedImage] = dict()
 
-        # total number of tasks (images) actually finished
-        finished_number: int = 0
+        finished_number: int = 0  # total number of tasks (images) actually finished
+        counter: int = 0  # total number of tasks that have been processed
 
         logger.info(">>> Start to augment the dataset")
         for task in tqdm.tqdm(task_assigner.augmentation_task_pipeline):
@@ -540,6 +540,10 @@ class Augmentor:
 
             # Skip the task
             if skip_flag:
+                counter += 1
+
+                # clean the unfinished task
+                task_assigner.augmentation_task_pipeline.remove(task)
                 continue
 
             # Save the image and its labels to the category it belongs to (training, validation, testing)
@@ -611,7 +615,12 @@ class Augmentor:
             name_augmented[save_name] = img
 
             finished_number += 1
+            print(finished_number, task_assigner.expected_num)
+            if finished_number == task_assigner.expected_num:
+                logger.info(f"Successfully finish target {finished_number} tasks as expected.")
+                break
 
+            counter += 1
             # ====================================== Finish one task ==================================== #
 
         # create the cache
@@ -625,11 +634,10 @@ class Augmentor:
                 pickle.dump(name_augmented, f)
 
         # statistics
-        expected_num = len(task_assigner.augmentation_task_pipeline)
-        if finished_number != expected_num:
-            logger.warning(f"Totally finish {finished_number} tasks but expected {expected_num}.")
-        else:
-            logger.info(f"Successfully finish all {expected_num} tasks.")
+        max_num = task_assigner.max_try
+        if counter == max_num:
+            logger.warning(f"Totally finish {finished_number} tasks but expected {max_num}. \n"
+                           f"The maximum attempt of {max_num} has reached.")
 
     @staticmethod
     def __save_directory(mode: str, save_path: str):
@@ -891,7 +899,7 @@ class Augmentor:
 if __name__ == "__main__":
     args = ArgumentParser.test_aug(RUN)
     db = DatabaseManager("../data/DNA_augmentation", training_dataset_name=args.dataset_name)
-    db.scan_and_update("../test_dataset", "../data", load_cache=False)
+    db.scan_and_update("../test_dataset", "../data", load_cache=True)
 
     data_loader = DataLoader.initialise(img_path=args.img_path,
                                         dataset_path=args.dataset_path,
