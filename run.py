@@ -8,7 +8,7 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.TaskAssigner import TaskAssigner
 from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, RUN, CROPPED, BACKGROUND, \
-    CREATE_CACHE
+    CREATE_CACHE, RAW, MOSAICS
 
 
 def database_update(args: argparse.Namespace):
@@ -65,6 +65,10 @@ def create_cache(args):
 
     if args.cache_name == CROPPED:
         data_loader.load_cropped_components()
+    elif args.cache_name == RAW:
+        data_loader.load_raw_components()
+    elif args.cache_name == MOSAICS:
+        data_loader.load_backgrounds(args.mosaic_size)
     else:
         data_loader.load_backgrounds(0)
 
