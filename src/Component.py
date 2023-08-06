@@ -35,7 +35,9 @@ class Component(Image):
                 # self.corners = np.array(label_data.split()[:8], dtype=np.float64).reshape(-1, 2)
 
         self.img_centre = np.divide(self.img_size[: 2], 2)
-        self.chip_centre = self.__find_chip_center()
+
+        if DNA_ORIGAMI in self.labels.keys():
+            self.chip_centre = self.__find_chip_center()
 
         # morphology
         if img_path is not None:
