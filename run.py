@@ -60,7 +60,9 @@ def run(args: argparse.Namespace, db: DatabaseManager):
 
 
 def create_cache(args):
-    data_loader = DataLoader.initialise(dataset_path=args.dataset_path, save_path=args.save_path,
+    data_loader = DataLoader.initialise(img_path=args.img_path,
+                                        dataset_path=args.dataset_path,
+                                        save_path=args.save_path,
                                         cache_save_dir=args.cache_save_dir)
 
     if args.cache_name == CROPPED:
