@@ -152,7 +152,7 @@ class DataLoader:
 
         return self
 
-    def load_components(self):
+    def load_cropped_components(self):
         logger.info(">>> Start to load cropped components")
 
         try:

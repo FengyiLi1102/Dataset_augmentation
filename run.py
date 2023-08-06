@@ -1,12 +1,21 @@
 import argparse
 import os.path
+from typing import Union, Tuple
 
 from src.ArgumentParser import ArgumentParser
 from src.Augmentor import Augmentor
 from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.TaskAssigner import TaskAssigner
-from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, RUN, CROPPED, BACKGROUND
+from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, RUN, CROPPED, BACKGROUND, \
+    CREATE_CACHE
+
+
+def database_update(args: argparse.Namespace):
+    database = DatabaseManager(os.path.join(f"data/{DNA_AUGMENTATION}"), training_dataset_name=args.dataset_name)
+    database.scan_and_update(args.dataset_path, args.img_path, load_cache=args.cache_scan)
+
+    return database
 
 
 def generate_fake_backgrounds(args: argparse.Namespace, db: DatabaseManager):
@@ -50,12 +59,22 @@ def run(args: argparse.Namespace, db: DatabaseManager):
     Augmentor.produce_augmented(data_loader, augmented_task_assigner, db, debug=args.debug)
 
 
+def create_cache(args):
+    data_loader = DataLoader.initialise(dataset_path=args.dataset_path, save_path=args.save_path,
+                                        cache_save_dir=args.cache_save_dir)
+
+    if args.cache_name == CROPPED:
+        data_loader.load_cropped_components()
+    else:
+        data_loader.load_backgrounds(0)
+
+
 def load_data(path: str, data_loader: DataLoader, is_background: bool):
     if path == "":
         if is_background:
             data_loader.load_backgrounds(0)
         else:
-            data_loader.load_components()
+            data_loader.load_cropped_components()
     else:
         cache_type = path.split("/")[-1].split("_")[0]
 
@@ -67,27 +86,33 @@ def load_data(path: str, data_loader: DataLoader, is_background: bool):
     return data_loader
 
 
-def main(args: argparse.Namespace, db: DatabaseManager):
-    if args.function == "run":
+def main(args: argparse.Namespace) -> Tuple[bool, Union[DatabaseManager, None]]:
+    db: Union[DatabaseManager, None] = None
+    db_flag: bool = False
+
+    if args.function in [RUN, CROP_ORIGAMI, GENERATE_FAKE_BACKGROUND]:
+        db = database_update(args)
+        db_flag = True
+
+    if args.function == RUN:
         run(args, db)
-    elif args.function == "crop_origami":
+    elif args.function == CROP_ORIGAMI:
         crop_origami(args, db)
-    elif args.function == "generate_fake_backgrounds":
+    elif args.function == GENERATE_FAKE_BACKGROUND:
         generate_fake_backgrounds(args, db)
+    elif args.function == CREATE_CACHE:
+        create_cache(args)
     else:
         raise NameError(f"Function name {args.function} cannot be found")
+
+    return db_flag, db
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     args = parser.parse_args()
 
-    # connect to database
-    database = DatabaseManager(os.path.join(f"data/{DNA_AUGMENTATION}"), training_dataset_name=args.dataset_name)
-    database.scan_and_update(args.dataset_path, args.img_path, load_cache=args.cache_scan)
+    db_flag, database = main(args)
 
-    main(args, database)
-
-    # main(ArgumentParser.test_args(RUN), database)
-
-    database.close_connection()
+    if db_flag:
+        database.close_connection()

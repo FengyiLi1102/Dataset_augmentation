@@ -1,4 +1,5 @@
 import argparse
+import os
 from typing import List
 
 import numpy as np
@@ -13,7 +14,7 @@ class ArgumentParser:
         # ================================================================================================= #
         # Functionality
         self.parser.add_argument("--function", "-f",
-                                 choices=["crop_origami", "run", "generate_fake_backgrounds"],
+                                 choices=["crop_origami", "run", "generate_fake_backgrounds", "create_cache"],
                                  default="run")
 
         # ========================================= >>> GENERAL <<< ======================================= #
@@ -28,7 +29,7 @@ class ArgumentParser:
                                  help="Directory to save processed images")
         self.parser.add_argument("--dataset_path", "-dp",
                                  type=str,
-                                 default=r"dataset",
+                                 default=os.getcwd(),
                                  help="Processed images including fake backgrounds and cropped components")
         self.parser.add_argument("--cache_scan",
                                  action="store_true",
@@ -149,6 +150,11 @@ class ArgumentParser:
                                  nargs=3,
                                  default=[8, 2, 0],
                                  help="Number ratio of training, validation and testing")
+
+        # ======================================== >>> Cache <<< =========================================== #
+        self.parser.add_argument("--cache_name",
+                                 type=str,
+                                 help="Type [cropped, background] of the cache expected to generate")
 
     def parse_args(self):
         return self.parser.parse_args()

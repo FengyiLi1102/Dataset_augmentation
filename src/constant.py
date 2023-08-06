@@ -24,6 +24,7 @@ split_convertor = {
 GENERATE_FAKE_BACKGROUND = "generate_fake_backgrounds"
 CROP_ORIGAMI = "crop_origami"
 RUN = "run"
+CREATE_CACHE = "create_cache"
 
 # DataLoader
 DNA_ORIGAMI = "DNA-origami"
