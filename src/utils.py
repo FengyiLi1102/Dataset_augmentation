@@ -25,6 +25,10 @@ def process_labels(param: Union[np.ndarray, Tuple[int, int]],
     return processed_labels
 
 
+def ratio_to_number(ratio: List[float], num: int):
+    return [int(ratio[0] / 10 * num), int(ratio[1] / 10 * num), int(ratio[-1] / 10 * num)]
+
+
 def concatenate_txt(dir_1: str, dir_2: str, save_dir: str):
     mkdir_if_not_exists(save_dir)
     # Get the list of txt files in the new label folder
