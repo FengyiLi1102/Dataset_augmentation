@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from typing import Tuple, List
 
 from src.constant import AUGMENTATION, TRAINING, VALIDATION, TESTING, SIMPLE, BACKGROUND
@@ -21,8 +20,9 @@ class Task:
         self.split: int = 0
 
     @classmethod
-    def initialise_list(cls, mode: str, num: int, ratio: List[int] = None) -> List[Task]:
+    def initialise_list(cls, mode: str, num: int, ratio: List[int] = None) -> Tuple[List[Task], List[int] | None]:
         init_list = []
+        n_split = None
 
         if mode == SIMPLE:
             for _ in range(num):
@@ -31,16 +31,18 @@ class Task:
             if ratio is None or sum(ratio) != 10:
                 raise Exception(f"Error: Split ratio for training, validation and testing is not given properly.")
 
-            splits_list = [TRAINING for _ in range(int(ratio[0] / 10 * num))] + \
-                          [VALIDATION for _ in range(int(ratio[1] / 10 * num))] + \
-                          [TESTING for _ in range(int(ratio[-1] / 10 * num))]
+            n_split = [int(ratio[0] / 10 * num), int(ratio[1] / 10 * num), int(ratio[-1] / 10 * num)]
+
+            splits_list = [TRAINING for _ in range(n_split[0])] + \
+                          [VALIDATION for _ in range(n_split[1])] + \
+                          [TESTING for _ in range(n_split[-1])]
 
             for category in splits_list:
                 task = Task()
                 task.split = category
                 init_list.append(task)
 
-        return init_list
+        return init_list, n_split
 
     def __str__(self):
         print(f"Background img: {self.background_id} \n",

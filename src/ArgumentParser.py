@@ -131,6 +131,10 @@ class ArgumentParser:
                                       " chip is too large, the algorithm will be hard to find a suitable location to"
                                       " place all of them. Therefore, a step should be set for the while loop to skip"
                                       " this task if the algorithm takes too long.")
+        self.parser.add_argument("--buffer",
+                                 type=float,
+                                 default=0.3,
+                                 help="Percent of increment to the target task number to resolve hard tasks.")
         self.parser.add_argument("--n_chip",
                                  type=int,
                                  nargs=2,

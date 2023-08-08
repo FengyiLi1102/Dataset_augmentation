@@ -415,8 +415,14 @@ class Augmentor:
         finished_number: int = 0  # total number of tasks (images) actually finished
         counter: int = 0  # total number of tasks that have been processed
 
+        flags: List[bool] = [False, False, False]
+
         logger.info(">>> Start to augment the dataset")
         for task in tqdm.tqdm(task_assigner.augmentation_task_pipeline):
+            # check if the type of the task has been finished
+            if flags[task.split]:
+                continue
+
             # background
             background = cls.__id_to_image(BACKGROUND, task.background_id, data_loader.name_bg_or_mosc, db)
             background_img = background.read()
@@ -615,7 +621,17 @@ class Augmentor:
             name_augmented[save_name] = img
 
             finished_number += 1
-            if finished_number == task_assigner.expected_num:
+            if finished_number == task_assigner.n_split[0]:
+                # finish training part
+                flags[0] = True
+
+            if finished_number == sum(task_assigner.n_split[: 2]):
+                flags[1] = True
+
+            if finished_number == sum(task_assigner.n_split):
+                flags[-1] = True
+
+            if np.all(flags):
                 logger.info(f"Successfully finish target {finished_number} tasks as expected.")
                 break
 

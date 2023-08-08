@@ -15,7 +15,8 @@ import logging
 
 from src.DatabaseManager import DatabaseManager
 from src.Task import Task
-from src.constant import BACKGROUND, CROPPED, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, DNA_ORIGAMI, AUGMENTED
+from src.constant import BACKGROUND, CROPPED, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, DNA_ORIGAMI, AUGMENTED, TRAINING, \
+    VALIDATION, TESTING
 from src.utils import mkdir_if_not_exists
 
 DNALogging.config_logging()
@@ -23,12 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class TaskAssigner:
-    # General
-    save_path: str
-    mode: str
-    cache_save_dir: str
-
     def __init__(self, task_type: str):
+        # General
+        self.save_path: str = ""
+        self.cache_save_dir: str = ""
+
         if task_type == GENERATE_FAKE_BACKGROUND:
             # Backgrounds
             self.background_task_pipeline: Dict[str, List] = dict()
@@ -49,6 +49,7 @@ class TaskAssigner:
         else:
             # Augmentation
             self.dataset_name: str = AUGMENTED
+            self.mode: str = ""
 
             # [required_scale, background_texture, component_texture, position, flip, rotation]
             self.initial_scale: float = .0
@@ -62,6 +63,7 @@ class TaskAssigner:
             self.patience: int = 0
             self.expected_num: int = 0
             self.max_try: int = 0
+            self.n_split: List[int] = []
 
     @classmethod
     def background_task(cls,
@@ -120,7 +122,7 @@ class TaskAssigner:
         task_assigner.expected_num = args.aug_number
 
         # maximum number of attempt to finish the target number of tasks
-        task_assigner.max_try = args.aug_number + int(0.3 * args.aug_number)
+        task_assigner.max_try = args.aug_number + int(args.buffer * args.aug_number)
 
         task_assigner.mode = args.mode
         task_assigner.save_path = args.save_path
@@ -129,8 +131,11 @@ class TaskAssigner:
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
 
-        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, task_assigner.expected_num,
-                                                                        args.training_ratio)
+        task_assigner.augmentation_task_pipeline, n_split = Task.initialise_list(args.mode, task_assigner.max_try,
+                                                                                 args.training_ratio)
+
+        if n_split:
+            task_assigner.n_split = np.multiply(n_split, args.buffer, dtype=np.int32)
 
         # magnify or shrink the origami
         min_scale, max_scale = args.scale_range
@@ -219,7 +224,7 @@ class TaskAssigner:
         # chip can rotate, and it may be considered as a circle with the radius as the half of its diagonal
         safe_chip_volume = expected_chip_volume / 2
 
-        abs_max_s = round((1/8) / (initial_scale**2), 1)  # reasonable maximum scale
+        abs_max_s = round((1 / 8) / (initial_scale ** 2), 1)  # reasonable maximum scale
         abs_min_s = 0.3
 
         if n_chip <= round(safe_chip_volume * 0.3):
@@ -284,3 +289,6 @@ class TaskAssigner:
             return random.choice(np.linspace(1, max_scale, num=num))
         else:
             return random.choice(np.linspace(min_scale, 1, num=num))
+
+    def extended_structure_task(self, args: argparse.Namespace):
+        pass
