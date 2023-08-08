@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Tuple, List
 
 from src.constant import AUGMENTATION, TRAINING, VALIDATION, TESTING, SIMPLE, BACKGROUND
+from src.utils import ratio_to_number
 
 
 class Task:
@@ -31,7 +32,7 @@ class Task:
             if ratio is None or sum(ratio) != 10:
                 raise Exception(f"Error: Split ratio for training, validation and testing is not given properly.")
 
-            n_split = [int(ratio[0] / 10 * num), int(ratio[1] / 10 * num), int(ratio[-1] / 10 * num)]
+            n_split = ratio_to_number(ratio, num)
 
             splits_list = [TRAINING for _ in range(n_split[0])] + \
                           [VALIDATION for _ in range(n_split[1])] + \

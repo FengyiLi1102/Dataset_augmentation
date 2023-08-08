@@ -417,7 +417,9 @@ class Augmentor:
 
         flags: List[bool] = [False, False, False]
 
-        logger.info(">>> Start to augment the dataset")
+        print(task_assigner.expected_num, task_assigner.n_split, task_assigner.max_try)
+
+        logger.info(f">>> Start to augment the dataset for a target of {task_assigner.expected_num}")
         for task in tqdm.tqdm(task_assigner.augmentation_task_pipeline):
             # check if the type of the task has been finished
             if flags[task.split]:

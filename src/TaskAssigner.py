@@ -17,7 +17,7 @@ from src.DatabaseManager import DatabaseManager
 from src.Task import Task
 from src.constant import BACKGROUND, CROPPED, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, DNA_ORIGAMI, AUGMENTED, TRAINING, \
     VALIDATION, TESTING
-from src.utils import mkdir_if_not_exists
+from src.utils import mkdir_if_not_exists, ratio_to_number
 
 DNALogging.config_logging()
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ class TaskAssigner:
         task_assigner.expected_num = args.aug_number
 
         # maximum number of attempt to finish the target number of tasks
-        task_assigner.max_try = args.aug_number + int(args.buffer * args.aug_number)
+        task_assigner.max_try = int(args.aug_number * (args.buffer + 1))
 
         task_assigner.mode = args.mode
         task_assigner.save_path = args.save_path
@@ -135,7 +135,7 @@ class TaskAssigner:
                                                                                  args.training_ratio)
 
         if n_split:
-            task_assigner.n_split = np.multiply(n_split, args.buffer, dtype=np.int32)
+            task_assigner.n_split = ratio_to_number(args.training_ratio, task_assigner.expected_num)
 
         # magnify or shrink the origami
         min_scale, max_scale = args.scale_range

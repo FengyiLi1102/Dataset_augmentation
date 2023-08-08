@@ -196,9 +196,8 @@ class ArgumentParser:
                                              "--dataset_name", "test",
                                              "--bg_number", '10',
                                              "--aug_number", '20',
-                                             "--cache",
-                                             "--n_chip", '5', '10',
-                                             "--patience", '2'])
+                                             "--n_chip", '1', '2',
+                                             "--patience", '20'])
 
     def find_all_choices(self, param: str) -> List:
         _choices = None
