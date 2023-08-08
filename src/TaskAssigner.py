@@ -129,7 +129,7 @@ class TaskAssigner:
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
 
-        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, task_assigner.max_try,
+        task_assigner.augmentation_task_pipeline = Task.initialise_list(args.mode, task_assigner.expected_num,
                                                                         args.training_ratio)
 
         # magnify or shrink the origami
