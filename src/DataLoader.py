@@ -72,7 +72,7 @@ class DataLoader:
                 # cropped
                 self.name_component = pickle.load(f)
 
-        logger.info(f">>> Finish loading dataset")
+        logger.info(f">>> Finish loading {cache_type} dataset")
 
         return self
 

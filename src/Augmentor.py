@@ -707,6 +707,7 @@ class Augmentor:
                       given_id: int,
                       name_img: Dict,
                       db: DatabaseManager) -> Union[Background, Component]:
+        # TODO: (parallel) instead of querying the database all the time, fetch all required data once starting
         if category == BACKGROUND:
             col_name = "Background_name"
         else:
