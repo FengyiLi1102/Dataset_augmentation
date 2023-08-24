@@ -6,6 +6,8 @@ from typing import Tuple, Dict, List
 import cv2
 import numpy as np
 
+from src.typeHint import LabelsType
+
 
 class Image:
     """
@@ -14,13 +16,13 @@ class Image:
     def __init__(self, img_path: str):
         self.__image: np.ndarray = cv2.imread(img_path)
         self.img_name: str = "_".join(img_path.split("/")[-1].split(".")[:-1])
-        self.img_size: Tuple[int, int, int] = self.__image.shape
+        self.img_size: Tuple[int, int] = self.__image.shape[: 2]
         self.ext: str = img_path[-3:]
         self.resize_into_flag: bool = False
 
     def resize_into(self, width: int, height: int):
         self.__image = cv2.resize(self.__image, (width, height))
-        self.img_size = self.__image.shape
+        self.img_size = self.__image.shape[: 2]
         self.resize_into_flag = True
 
     def show(self):
@@ -38,8 +40,14 @@ class Image:
         self.__image = image
 
     @staticmethod
-    def plot_labels(canvas: np.ndarray, labels: Dict[str, List[np.ndarray]]):
-        for label_type in labels:
-            for i in range(len(labels[label_type])):
-                pts = labels[label_type][i].reshape((-1, 1, 2)).astype(np.int32)
-                cv2.polylines(canvas, [pts], True, (0, 0, 255), 2)
+    def plot_labels(img: np.ndarray,
+                    labels: LabelsType,
+                    color: Tuple[int, int, int] = (0, 0, 255)) -> np.ndarray:
+        canvas = img.copy()
+
+        for label_type, value_list in labels.items():
+            for label in value_list:
+                pts = label.reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(canvas, [pts], True, color=color, thickness=2)
+
+        return canvas

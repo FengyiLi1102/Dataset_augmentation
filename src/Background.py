@@ -7,6 +7,7 @@ import numpy as np
 
 from src.Image import Image
 from src.utils import mkdir_if_not_exists
+from typeHint import LabelsType
 
 
 class Background(Image):
@@ -27,7 +28,7 @@ class Background(Image):
     @staticmethod
     def draw_box(save_name: str,
                  background_img: np.ndarray,
-                 all_labels: List[Dict[str, List[np.ndarray]]],
+                 all_labels: List[LabelsType],
                  save_dir: str = "../debug"):
         mkdir_if_not_exists(save_dir)
 

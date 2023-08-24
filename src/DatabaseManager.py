@@ -241,7 +241,7 @@ class DatabaseManager:
 
         return unique_values
 
-    def group_by_column(self, on_column: str, by_column: str) -> Dict:
+    def group_by_column(self, on_column: str, by_column: str) -> Dict[str, List[int]]:
         self.__select_table_check()
 
         self.__cursor.execute(

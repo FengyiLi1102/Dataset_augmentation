@@ -14,7 +14,8 @@ class ArgumentParser:
         # ================================================================================================= #
         # Functionality
         self.parser.add_argument("--function", "-f",
-                                 choices=["crop_origami", "run", "generate_fake_backgrounds", "create_cache"],
+                                 choices=["crop_origami", "run", "generate_fake_backgrounds", "create_cache",
+                                          "generate_extended_structure"],
                                  default="run")
 
         # ========================================= >>> GENERAL <<< ======================================= #
@@ -77,21 +78,30 @@ class ArgumentParser:
                                  type=int,
                                  default=300,
                                  help="Extra pixels captured away from the detected DNA origami")
+        self.parser.add_argument("--gap_h",
+                                 type=float,
+                                 default=1,
+                                 help="Gap between two horizontally stitched origami chips in the unit of "
+                                      "nanometer (nm)")
+        self.parser.add_argument("--gap_w",
+                                 type=float,
+                                 default=2,
+                                 help="Gap between two vertically stitched row origami structures in the unit of nm")
 
         # ====================================== >>> AUGMENTATION <<< ===================================== #
         # For producing augmentation images
         self.parser.add_argument("--dataset_name",
                                  type=str,
-                                 default="one_chip_dataset")
+                                 default="default_dataset")
         self.parser.add_argument("--initial_scale", "-is",
                                  type=float,
                                  default=1 / 4,
-                                 help="Resize the components with a suitable size compared to backgrounds")
+                                 help="Resize the components with a suitable size of the side compared to backgrounds")
         self.parser.add_argument("--scale_range", "-sr",
                                  nargs=2,
                                  type=float,
                                  default=[0.4, 2.0],
-                                 help="Scale range for origami")
+                                 help="A range of scale of the area for origami")
         self.parser.add_argument("--scale_increment",
                                  type=float,
                                  default=0.1)
@@ -140,6 +150,11 @@ class ArgumentParser:
                                  nargs=2,
                                  default=[1, 2],
                                  help="Range of number of chips to embed")
+        self.parser.add_argument("--stitch",
+                                 type=int,
+                                 nargs=2,
+                                 default=[1, 1],
+                                 help="Stitch pre-determined origami chips into a larger one with a given size.")
 
         # ====================================== >>> TRAINING <<< ========================================= #
         # Training
@@ -193,11 +208,14 @@ class ArgumentParser:
                                              "-ip", "../data",
                                              "-sp", "../test_dataset",
                                              "-dp", "../test_dataset",
-                                             "--dataset_name", "test",
+                                             "--dataset_name", "extended_2x2",
                                              "--bg_number", '10',
-                                             "--aug_number", '20',
-                                             "--n_chip", '1', '2',
-                                             "--patience", '20'])
+                                             "--aug_number", '10',
+                                             "--n_chip", '1', '10',
+                                             "--patience", '20',
+                                             "--stitch", '2', '2',
+                                             "--initial_scale", '320',
+                                             "--debug"])
 
     def find_all_choices(self, param: str) -> List:
         _choices = None

@@ -8,7 +8,7 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.TaskAssigner import TaskAssigner
 from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAMI, RUN, CROPPED, BACKGROUND, \
-    CREATE_CACHE, RAW, MOSAICS
+    CREATE_CACHE, RAW, MOSAICS, GENERATE_EXTENDED_STRUCTURE
 
 
 def database_update(args: argparse.Namespace):
@@ -48,6 +48,21 @@ def crop_origami(args: argparse.Namespace, db: DatabaseManager):
     Augmentor.produce_components(data_loader, component_task_assigner, db)
 
 
+def generate_extended_structures(args: argparse.Namespace, db: DatabaseManager):
+    if args.cache_chip_path == "":
+        data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir) \
+            .load_cropped_components()
+    else:
+        data_loader = DataLoader.initialise(cache_save_dir=args.cache_save_dir).load_cached_files(args.cache_chip_type,
+                                                                                                  args.cache_chip_path)
+
+    # generate tasks
+    extended_structure_task = TaskAssigner.extended_structure_task(args, db)
+
+    # finish tasks
+    Augmentor.produce_extended_structures(data_loader, extended_structure_task, db, True)
+
+
 def run(args: argparse.Namespace, db: DatabaseManager):
     data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir)
 
@@ -66,7 +81,7 @@ def create_cache(args):
                                         cache_save_dir=args.cache_save_dir)
 
     if args.cache_name == CROPPED:
-        data_loader.load_cropped_components()
+        data_loader.load_cropped_components(labels="ordered_labels")
     elif args.cache_name == RAW:
         data_loader.load_raw_components()
     elif args.cache_name == MOSAICS:
@@ -110,6 +125,8 @@ def main(args: argparse.Namespace) -> Tuple[bool, Union[DatabaseManager, None]]:
         generate_fake_backgrounds(args, db)
     elif args.function == CREATE_CACHE:
         create_cache(args)
+    elif args.function == GENERATE_EXTENDED_STRUCTURE:
+        generate_extended_structures(args, db)
     else:
         raise NameError(f"Function name {args.function} cannot be found")
 
