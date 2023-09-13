@@ -5,12 +5,10 @@ import logging
 import random
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Dict, Union, Tuple
+from typing import Union
 
 import cv2
-import numpy as np
 import tqdm
-from matplotlib import pyplot as plt
 from rich.progress import track
 
 from src.AugmentedImage import AugmentedImage
@@ -21,11 +19,11 @@ from src.DataLoader import DataLoader
 from src.DatabaseManager import DatabaseManager
 from src.Image import Image
 from src.TaskAssigner import TaskAssigner
-from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, RUN, CROPPED, TESTING, V, H, N, \
-    DNA_ORIGAMI, ACTIVE_SITE, GENERATE_EXTENDED_STRUCTURE
+from src.constant import BACKGROUND, TRAINING, SIMPLE, AUGMENTATION, VALIDATION, CROPPED, TESTING, V, H, N, DNA_ORIGAMI, \
+    ACTIVE_SITE, GENERATE_EXTENDED_STRUCTURE, flip_convertor
 from src.DNALogging import DNALogging
-from src.utils import mkdir_if_not_exists, process_labels, compute_m_from_angle, compute_m_c, \
-    compute_angle_between_horizontal, find_clockwise_order, compute_new_centre_row
+from src.utils import mkdir_if_not_exists, process_labels, compute_m_c, compute_angle_between_horizontal, \
+    compute_new_centre_row
 from src.typeHint import *
 
 DNALogging.config_logging()
@@ -36,6 +34,7 @@ class Augmentor:
     # Augmentation
     patience: int = 0
     debug: bool = False
+    COUNTER: int = 0
 
     @classmethod
     def produce_backgrounds(cls,
@@ -118,7 +117,7 @@ class Augmentor:
 
         try:
             for operation in task_in_row:
-                augmented_images.append(Augmentor.operate(operation, random.choice(mosaics_pool)))
+                augmented_images.append(Augmentor.operate(operation, random.choice(mosaics_pool), background=True))
         except IndexError:
             raise Exception(f"Not enough mosaics loaded: only with {len(mosaics_pool)}")
 
@@ -164,10 +163,11 @@ class Augmentor:
 
     @staticmethod
     def operate(operation_type,
-                image: Image) -> np.array:
+                image: Image,
+                background: bool = False) -> np.array:
         if operation_type in [V, H, N]:
             # flip
-            return Augmentor.__flip(image.read(), operation_type)[0]
+            return Augmentor.__flip(image.read(), operation_type, background=background)[0]
         elif -180 <= operation_type <= 180:
             # rotate
             return Augmentor._rotate(image.read(), operation_type)[0]
@@ -177,7 +177,8 @@ class Augmentor:
     @staticmethod
     def __flip(img: np.ndarray,
                direction: int,
-               labels: LabelsType | None = None) -> Tuple[np.ndarray, LabelsType | None]:
+               labels: LabelsType | None = None,
+               background: bool = False) -> Tuple[np.ndarray, LabelsType | None]:
         flipped_labels = None
 
         if direction == N:
@@ -201,7 +202,8 @@ class Augmentor:
                 raise ValueError(f"Given flip option {direction} is invalid. Please use one of V, H, and N. \n"
                                  f"V: vertical; H: horizontal; N: Not flip")
 
-            flipped_labels = Component.order_labels_in_clockwise_order(flipped_labels)
+            if not background:
+                flipped_labels = Component.order_labels_in_clockwise_order(flipped_labels)
 
         return flipped_image, flipped_labels
 
@@ -216,7 +218,8 @@ class Augmentor:
     @staticmethod
     def _rotate(img: np.ndarray,
                 angle: float,
-                labels: LabelsType | None = None) -> Tuple[np.ndarray, LabelsType | None, np.ndarray]:
+                labels: LabelsType | None = None,
+                stitched: bool = True) -> Tuple[np.ndarray, LabelsType | None, np.ndarray]:
         # positive angle -> counter clock-wise
         # negative angle -> clock-wise
         rows, cols = img.shape[: 2]
@@ -239,7 +242,7 @@ class Augmentor:
 
         # if labels given
         if labels is not None:
-            rotation_matrix_2D = M_c[:, :2]  # 2 x 2
+            rotation_matrix_2D = M_c[:, : 2] if stitched else M[:, : 2]
 
             for label_type, label_list in labels.items():
                 for label in label_list:
@@ -398,15 +401,14 @@ class Augmentor:
         Augmentor.__save_directory(task_assigner.mode, save_path_root)
 
         # cache for future fast loading
-        name_augmented: Dict[str, AugmentedImage] = dict()
+        # TODO: (feat) cache
+        # name_augmented: Dict[str, AugmentedImage] = dict()
 
         logger.info(f">>> Start to produce {task_assigner.stitch_size} extended structures for a task of "
                     f"{task_assigner.expected_num}")
-        for counter, task in tqdm.tqdm(enumerate(task_assigner.augmentation_task_pipeline)):
+        for counter, task in track(enumerate(task_assigner.augmentation_task_pipeline)):
             this_rotation = 0
-
-            # all structures -> one structure -> multiple chips -> labels: type <-> multiple
-            finished_labels: List[List[LabelsType]] = [[] for _ in range(task.n_structure)]
+            cls.COUNTER = counter
 
             # for multiple chips in one structure
             pos_in_struc = [index for index, _ in
@@ -417,10 +419,9 @@ class Augmentor:
 
             stitched_row_img: np.ndarray | None = None  # image of the structure
             stitched_label: StitchLabelType = dict()  # label of the structure
-            stitched_row_label: np.ndarray | None = None  # bounding box enclosing the row structure
 
             # m and c values for each row
-            m_c_arr: np.ndarray = np.zeros(task_assigner.stitch_size, dtype=np.float64)
+            m_c_arr: np.ndarray = np.zeros((task_assigner.stitch_size[0], 2), dtype=np.float64)
 
             pixel_to_nm: float = task_assigner.initial_scale / 70
 
@@ -428,7 +429,8 @@ class Augmentor:
             # e.g. 2 x 2 structure will be stored with 2 parts with a size of 1 x 2
             # both for stitching along the y-axis
             structure_row_img: List[np.ndarray] = []  # store row structure image
-            structure_row_label: List[np.ndarray] = []  # store row structure label
+
+            skip_flag: bool = False
 
             # ================================ >>> Start for one chip <<< ================================== #
             # for each chip in a structure
@@ -465,20 +467,24 @@ class Augmentor:
                 # chips may have tiny difference on the scale within an acceptable range
                 # In the extended structure, this tiny amount is not known now.
                 # Assume that even 10% of the difference in area will destroy the structure.
-                new_scale = round(np.random.uniform(0.9, 1.1), task_assigner.decimal_place)
-                new_side_scale = np.sqrt(new_scale)
+                # TODO: (feat) rescale each origami tile with a very tiny value
+                # new_scale = round(np.random.uniform(0.9, 1.1), task_assigner.decimal_place)
+                # new_side_scale = np.sqrt(new_scale)
 
                 # Note: in width and height for cv2.resize
-                scaled_size = tuple(int(x) for x in np.dot(component.img_size, new_side_scale))[::-1]
-                component_img = cv2.resize(component.read(), scaled_size)
-                component_labels = Component.rescale_label(component.labels, new_side_scale)
+                component_img, component_labels = component.read(), component.labels
+
+                # TODO: (feat) rescale each origami tile with a very tiny value
+                # scaled_size = tuple(int(x) for x in np.dot(component.img_size, new_side_scale))[::-1]
+                # component_img = cv2.resize(component.read(), scaled_size)
+                # component_labels = Component.rescale_label(component.labels, new_side_scale)
 
                 # compute the relation between the pixel and real length of one chip in the background
                 # assume the real length of each chip is the same of 70 nm
-                if not pixel_to_nm:
-                    chip_w, _ = Component.compute_chip_size(component_labels[DNA_ORIGAMI][0])
-                    # pixel_to_nm = chip_w / 70
-                    pixel_to_nm = 10
+                # if not pixel_to_nm:
+                #     chip_w, _ = Component.compute_chip_size(component_labels[DNA_ORIGAMI][0])
+                #     # pixel_to_nm = chip_w / 70
+                #     pixel_to_nm = 10
 
                 # debug: show resized component with its labels
                 if debug:
@@ -486,7 +492,6 @@ class Augmentor:
                                        component_label=component_labels)
 
                 # flip
-                # if this_flip != N:
                 component_img, component_labels = cls.__flip(component_img, this_flip, labels=component_labels)
                 chip_rotation = compute_angle_between_horizontal(labels=component_labels[DNA_ORIGAMI][0])
 
@@ -507,37 +512,48 @@ class Augmentor:
                     component.draw_box(f"4_rotated_{additional_rotation:.2f}", component_img=component_img,
                                        component_label=component_labels)
 
-                component_img, component_labels = component.crop(component_img, component_labels, debug=True,
+                component_img, component_labels = component.crop(component_img, component_labels, debug=debug,
                                                                  pos=stitch_pos)
 
-                if stitch_pos == (0, 0):
+                if stitch_pos[1] == 0:
+                    if stitch_pos[0] != 0:
+                        # if this chip starts from a new row
+                        # first store the earlier row stitched image.
+                        structure_row_img.append(stitched_row_img)
+
                     stitched_row_img = component_img
                     stitched_label[stitch_pos] = component_labels
                     chip_label = component_labels[DNA_ORIGAMI][0]
                     chip_label_centre_d = Component.from_TL_to_centre(np.mean(chip_label, axis=0), chip_label,
                                                                       cartesian=True)
-                    m_c_arr[0] = compute_m_c(chip_label_centre_d[-1], chip_label_centre_d[-2], cartesian=True)
+                    m_c_arr[stitch_pos[0]] = compute_m_c(chip_label_centre_d[-1], chip_label_centre_d[-2], cartesian=True)
+
                     continue
+                # if stitch_pos == (0, 0):
+                #     stitched_row_img = component_img
+                #     stitched_label[stitch_pos] = component_labels
+                #     chip_label = component_labels[DNA_ORIGAMI][0]
+                #     chip_label_centre_d = Component.from_TL_to_centre(np.mean(chip_label, axis=0), chip_label,
+                #                                                       cartesian=True)
+                #     m_c_arr[0] = compute_m_c(chip_label_centre_d[-1], chip_label_centre_d[-2], cartesian=True)
+                #     continue
                 else:
-                    if stitch_pos[1] == 0:
-                        # if this chip starts from a new row
-                        # first store the earlier row stitched image.
-                        structure_row_img.append(stitched_row_img)
-
-                        # store the larger labeling box enclosing row structure
-                        structure_row_label.append(stitched_row_label)
-
-                        # reset
-                        stitched_row_img = component_img
-                        stitched_label[stitch_pos] = component_labels
-
-                        # compute the bottom line equation with m and c
-                        chip_label = component_labels[DNA_ORIGAMI][0]
-                        chip_label_centre_d = Component.from_TL_to_centre(np.mean(chip_label, axis=0), chip_label,
-                                                                          cartesian=True)
-                        m_c_arr[stitch_pos[0]] = compute_m_c(chip_label_centre_d[-1], chip_label_centre_d[-2],
-                                                             cartesian=True)
-                        continue
+                    # if stitch_pos[1] == 0:
+                    #     # if this chip starts from a new row
+                    #     # first store the earlier row stitched image.
+                    #     structure_row_img.append(stitched_row_img)
+                    #
+                    #     # reset
+                    #     stitched_row_img = component_img
+                    #     stitched_label[stitch_pos] = component_labels
+                    #
+                    #     # compute the bottom line equation with m and c
+                    #     chip_label = component_labels[DNA_ORIGAMI][0]
+                    #     chip_label_centre_d = Component.from_TL_to_centre(np.mean(chip_label, axis=0), chip_label,
+                    #                                                       cartesian=True)
+                    #     m_c_arr[stitch_pos[0]] = compute_m_c(chip_label_centre_d[-1], chip_label_centre_d[-2],
+                    #                                          cartesian=True)
+                    #     continue
 
                     stitched_row_img, stitched_label[stitch_pos], stitched_row_label = (
                         Augmentor.__stitch_along_row(
@@ -551,12 +567,15 @@ class Augmentor:
                         )
                     )
 
-                    if debug:
-                        cv2.imwrite(f"../debug/debug_6_{counter}_row_{idx_chip}.png", stitched_row_img)
+                    if stitched_row_img is False:
+                        skip_flag = True
+                        break
 
                     # after all the row structures are finished and start to stitch them along y-axis
-                    if idx_chip != task_assigner.n_stitch:
+                    if idx_chip != task_assigner.n_stitch - 1:
                         continue
+
+                structure_row_img.append(stitched_row_img)
 
                 # stitch all chips along y-axis
                 component_img, component_labels = Augmentor.__stitch_along_col(structure_row_img,
@@ -564,7 +583,7 @@ class Augmentor:
                                                                                task_assigner.gap_h * pixel_to_nm)
 
                 # add new records for updating the database
-                # TODO: design a table for extended structure
+                # TODO: (database) design a table for extended structure
                 # new_record = {
                 #     "Component_id": this_component_id,
                 #     "Background_id": task.background_id,
@@ -576,22 +595,12 @@ class Augmentor:
 
                 # ============================== End of processing one structure =============================== #
 
-            # generate the image name
-            save_name = "augmented_" + str(task_assigner.stitch_size) + "_" + str(counter)
-            # component_id_str = []
-            # scale_str = []
-            # flip_str = []
-            # rotate_str = []
-            #
-            # for chip in db_records:
-            #     component_id_str.append(str(chip["Component_id"]))
-            #     scale_str.append(str(chip["Component_scale"]))
-            #     flip_str.append(chip["Flip"])
-            #     rotate_str.append(str(chip["Rotate"]))
+            if skip_flag:
+                continue
 
-            # for value_list in [component_id_str, scale_str, flip_str, rotate_str]:
-            #     save_name += "_"
-            #     save_name += ",".join(value_list)
+            # generate the image name
+            # TODO: (perf) create a more readable names
+            save_name = "augmented_" + str(task_assigner.stitch_size) + "_" + str(counter)
 
             # debug: show final result
             if debug:
@@ -620,6 +629,7 @@ class Augmentor:
                         f.write("\n")
 
             # update the database
+            # TODO: (feat) update database
             # for record in db_records:
             #     record["Image_name"] = save_name_png
             #     record["Category"] = category
@@ -638,7 +648,7 @@ class Augmentor:
             # img = AugmentedImage(category, **fast_create_data)
             # name_augmented[save_name] = img
 
-            if counter % 200 == 0:
+            if counter <= 10 or counter % 200 == 0:
                 logger.info(f"Finish {counter} tasks ...")
 
             # ====================================== Finish one task ==================================== #
@@ -663,10 +673,9 @@ class Augmentor:
                           db: DatabaseManager,
                           debug: bool = False):
         cls.patience = task_assigner.patience
-        cls.debug = debug
 
         background_size = data_loader.bg_or_mosc_img["clean"][0].img_size[0]
-        scaled_height = background_size * task_assigner.initial_scale  # initial_scale is for the side not for area
+        scaled_height = background_size * task_assigner.initial_scale
 
         split_to_folder = {
             TRAINING: "train",
@@ -692,8 +701,8 @@ class Augmentor:
         flags: List[bool] = [False, False, False]
 
         logger.info(f">>> Start to augment the dataset for a target of {task_assigner.expected_num}")
-        for task in tqdm.tqdm(task_assigner.augmentation_task_pipeline):
-            # check if this type of the task has been finished
+        for task in track(task_assigner.augmentation_task_pipeline):
+            # check if the type of the task has been finished
             if flags[task.split]:
                 continue
 
@@ -703,158 +712,125 @@ class Augmentor:
 
             augmented_img = background_img.copy()
 
-            this_required_area_scale = task.required_scale
-            this_required_side_scale = np.sqrt(this_required_area_scale)
-
-            # all structures -> one structure -> multiple chips -> labels: type <-> multiple
-            finished_labels: List[List[LabelsType]] = [[] for _ in range(task.n_structure)]
+            this_required_scale = task.required_scale
+            this_required_side_scale = np.sqrt(this_required_scale)
+            finished_labels: List[Dict[str, List[np.ndarray]]] = []
+            db_records: List[Dict[str]] = []
             pos_recorder: np.ndarray = np.zeros(augmented_img.shape[: 2])
 
-            # for only one or multiple chips in one structure
-            db_records: List[Dict[str, str | int | float]] | None = []
-            pos_in_struc = None
-
             skip_flag: bool = False
-            task_labels: np.ndarray | None = None  # contain all structure labels in one background image
 
-            # ================================== >>> Start for one structure <<< ==================================== #
-            # for each structure
-            for idx_struc in range(task.n_structure):
-                this_rotation = task.rotation[idx_struc]
+            # for each origami chip
+            for idx in range(task.n_chip):
+                # extract the data
+                this_component_id = task.component_id[idx]
+                this_flip = task.flip[idx]
+                this_rotation = task.rotation[idx]
 
-                # ================================ >>> Start for one chip <<< ================================== #
-                # for each chip in a structure
-                for idx_chip in range(task_assigner.n_stitch):
-                    # extract the data
-                    this_component_id = task.component_id[idx_struc][idx_chip]
-                    this_flip = task.flip[idx_struc][idx_chip]
+                # find the corresponding component from its id
+                component = cls.__id_to_image(task_assigner.component_name, this_component_id,
+                                              data_loader.name_component, db)
 
-                    # find the corresponding component from its id
-                    component = cls.__id_to_image(CROPPED, this_component_id, data_loader.name_component, db)
+                # scale into initial size if not yet
+                if not component.initial_scale:
+                    # based on the height
+                    adjusted_scale = scaled_height / component.chip_h
 
-                    # scale into initial size if not yet
-                    if not component.initial_scale:
-                        # based on the height of the chip
-                        adjusted_scale = scaled_height / component.chip_h
+                    # initial scale
+                    component.resize_into(int(component.img_size[1] * adjusted_scale),
+                                          int(component.img_size[0] * adjusted_scale))
+                    component.update_resizing_res(adjusted_scale)
 
-                        # resize the component image
-                        component.resize_into(
-                            int(component.img_size[1] * adjusted_scale), int(component.img_size[0] * adjusted_scale))
-                        component.update_resizing_res(adjusted_scale)
+                    component.initial_scale = True
 
-                        component.initial_scale = True
-
-                        # Debug: show initial component images
-                        if debug:
-                            component.draw_box("init")
-
-                    # Rescale the component image
-                    if this_required_area_scale in component.scaled_image:
-                        # have rescaled before, directly apply from the storage
-                        component_img = component.scaled_image[this_required_area_scale]
-                        component_labels = component.scaled_labels[this_required_area_scale]
-                    elif this_required_area_scale == 1.0:
-                        component_img = component.read()
-                        component_labels = component.labels
-                    else:
-                        # new scale
-                        if task_assigner.n_stitch > 1:
-                            # chips may have tiny difference on the scale within an acceptable range
-                            # In the extended structure, this tiny amount is not known at the moment.
-                            # Assume that even 10% of difference in area will destroy the whole structure
-                            new_scale = round(
-                                np.abs(np.random.normal(this_required_area_scale, this_required_area_scale / 2)),
-                                task_assigner.decimal_place
-                            )
-
-                            if abs(new_scale - this_required_area_scale) / this_required_area_scale < 0.1:
-                                this_required_area_scale = new_scale
-                                this_required_side_scale = np.sqrt(new_scale)
-
-                        # Note: in width and height for cv2.resize
-                        scaled_size = tuple(
-                            int(x) for x in np.dot(component.img_size[: 2], this_required_side_scale)
-                        )[::-1]
-                        component_img, component_labels = (
-                            component.add_resizing_res(scaled_size,
-                                                       this_required_side_scale,
-                                                       decimal_places=task_assigner.decimal_place)
-                        )
-
-                    # debug: show resized component with its labels
+                    # Debug: show initial component images
                     if debug:
-                        component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
-                                           component_label=component_labels)
+                        component.draw_box("init")
 
-                    # compute the relation between the pixel and real length of one chip in the background
-                    # assume the real length of each chip is the same of 70 nm
-                    pixel_to_nm = component.chip_wh_cache[this_required_area_scale][0] / 70
+                # Rescale the component image
+                if this_required_scale in component.scaled_image:
+                    # have rescaled before, directly apply from the storage
+                    component_img = component.scaled_image[this_required_scale]
+                    component_labels = component.scaled_labels[this_required_scale]
+                elif this_required_scale == 1.0:
+                    component_img = component.read()
+                    component_labels = component.labels
+                else:
+                    # new scale
+                    if task.n_chip > 1:
+                        # chips may have tiny difference on the scale within an acceptable range
+                        this_required_scale = np.abs(np.random.normal(this_required_scale, this_required_scale / 2))
 
-                    # check if component is larger than the background
-                    Augmentor.__is_larger(component_img, background_img, error_flag=True)
+                    # in width and height for cv2.resize
+                    scaled_size = tuple(int(x) for x in np.dot(component.img_size[: 2], this_required_side_scale))[::-1]
+                    component_img, component_labels = component.add_resizing_res(scaled_size, this_required_side_scale)
 
-                    # flip
-                    if this_flip == N:
-                        # no flip
-                        pass
-                    elif this_required_area_scale == 1.0:
-                        # just flip without rescale (still initial scale)
-                        if this_flip in component.flipped_image:
-                            # from the storage
-                            component_img = component.flipped_image[this_flip]
-                            component_labels = component.flipped_label[this_flip]
-                        else:
-                            # not flipped before
-                            component_img, component_labels = cls.__flip(component_img, this_flip,
-                                                                         labels=component_labels)
-                            component.add_flipping_res(this_flip, component_img, component_labels)
+                # debug: show resized component with its labels
+                if debug:
+                    component.draw_box(f"resize_{task.required_scale:.2f}", component_img=component_img,
+                                       component_label=component_labels)
+
+                # check if component is larger than the background
+                Augmentor.__is_larger(component_img, background_img, error_flag=True)
+
+                # flip
+                if this_flip == "n":
+                    # no flip
+                    pass
+                elif this_required_scale == 1.0:
+                    # just flip without rescale
+                    if this_flip in component.flipped_image:
+                        # original scale but have flipped before
+                        component_img = component.flipped_image[this_flip]
+                        component_labels = component.flipped_label[this_flip]
                     else:
-                        # rescaled and flip
+                        # not flipped before
                         component_img, component_labels = cls.__flip(component_img, this_flip, labels=component_labels)
+                        component.add_flipping_res(this_flip, component_img, component_labels)
+                else:
+                    # rescaled and flip
+                    component_img, component_labels = cls.__flip(component_img, this_flip, labels=component_labels)
 
-                    # debug: show resized and flipped component with its surrounding box
-                    if debug:
-                        component.draw_box(f"flipped_{task.flip}", component_img=component_img,
-                                           component_label=component_labels)
+                # debug: show resized and flipped component with its surrounding box
+                if debug:
+                    component.draw_box(f"flipped_{task.flip}", component_img=component_img,
+                                       component_label=component_labels)
 
-                    # rotate
-                    component_centre = component_img.shape[::-1][: 2] // 2
-                    component_label_to_centre = Component.convert_TL_to_centre(component_centre, component_labels)
-                    additional_rotation = this_rotation - component.chip_rotation
-                    component_img, component_labels, _ = Augmentor._rotate(component_img, additional_rotation,
-                                                                           component_label_to_centre)
+                # rotate
+                centre = np.divide(component_img.shape[: 2][::-1], 2)
+                component_label_to_centre = Component.convert_TL_to_centre(centre, component_labels)
+                component_img, component_labels, _ = Augmentor._rotate(component_img, this_rotation,
+                                                                       component_label_to_centre, stitched=False)
 
-                    # debug: show resized, flipped and rotated component with its surrounding box
-                    if debug:
-                        component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
-                                           component_label=component_labels)
+                # debug: show resized, flipped and rotated component with its surrounding box
+                if debug:
+                    component.draw_box(f"rotated_{task.rotation}", component_img=component_img,
+                                       component_label=component_labels)
 
-                    # Generate the random position firstly without overlapping
-                    # Embed the component on the background
-                    # TODO: (stitch) compute the position for each chip in the structure
-                    augmented_img, final_labels, pos_recorder = Augmentor.__embed_component(component_img,
-                                                                                            augmented_img,
-                                                                                            component_labels,
-                                                                                            pos_recorder)
-                    # Too hard to finish the task, skip this one
-                    if augmented_img is None:
-                        skip_flag = True
-                        break
+                # component_img, component_labels = component.crop(component_img, component_labels)
 
-                    finished_labels[idx_struc].append(final_labels)  # labels for one component
+                # Generate the random position firstly without overlapping
+                # Embed the component on the background
+                augmented_img, final_labels, pos_recorder = Augmentor.__embed_component(component_img, augmented_img,
+                                                                                        component_labels, pos_recorder)
+                # Too hard to finish the task, skip this one
+                if augmented_img is None:
+                    skip_flag = True
+                    break
 
-                    # add new records for updating the database
-                    if task_assigner.n_stitch == 1:
-                        new_record = {
-                            "Component_id": this_component_id,
-                            "Background_id": task.background_id,
-                            "Component_scale": round(this_required_area_scale, 2),
-                            "Flip": this_flip,
-                            "Rotate": this_rotation,
-                        }
-                        db_records.append(new_record)
+                finished_labels.append(final_labels)
 
-                    # =========================== End of processing one chip / structure ============================ #
+                # add new records for updating the database
+                new_record = {
+                    "Component_id": this_component_id,
+                    "Background_id": task.background_id,
+                    "Component_scale": round(this_required_scale, 2),
+                    "Flip": flip_convertor[this_flip],
+                    "Rotate": this_rotation,
+                }
+                db_records.append(new_record)
+
+                # ============================= End of processing one chip =================================== #
 
             # Skip the task
             if skip_flag:
@@ -944,17 +920,13 @@ class Augmentor:
                 flags[-1] = True
 
             if np.all(flags):
-                logger.info(f">>> Successfully finish target {finished_number} tasks as expected.")
+                logger.info(f"Successfully finish target {finished_number} tasks as expected.")
                 break
-
-            if finished_number % 200 == 0:
-                logger.info(f"Finish {finished_number} tasks ...")
 
             counter += 1
             # ====================================== Finish one task ==================================== #
 
         # create the cache
-        # TODO: (perf) create separate image and label caches -> save space
         if task_assigner.cache:
             cache_save_path = os.path.join(task_assigner.save_path, task_assigner.cache_save_dir)
 
@@ -964,14 +936,13 @@ class Augmentor:
             with open(os.path.join(cache_save_path, cache_name), "wb") as f:
                 pickle.dump(name_augmented, f)
 
-            logger.info(f">>> Create a cache file for {cache_name}")
-
         # statistics
+        max_num = task_assigner.max_try
         if counter > task_assigner.expected_num:
-            logger.warning(f"Totally finish {finished_number} tasks but expected {task_assigner.expected_num}.")
+            logger.warning(f"Totally finish {finished_number} tasks but expected {max_num}.")
 
-            if counter == task_assigner.max_try:
-                logger.warning(f"The maximum attempt of {task_assigner.max_try} has reached.")
+            if counter == max_num:
+                logger.warning(f"The maximum attempt of {max_num} has reached.")
 
     @staticmethod
     def __stitch_along_row(chip_img: np.ndarray,
@@ -980,7 +951,7 @@ class Augmentor:
                            stitched_labels: StitchLabelType,
                            stitch_pos: Tuple[int, int],
                            m_c_row: np.ndarray,
-                           gap: float) -> Tuple[np.ndarray, LabelsType, np.ndarray]:
+                           gap: float) -> Tuple[np.ndarray, LabelsType, np.ndarray] | Tuple[bool, bool, bool]:
         neighbouring_origami_pos = (stitch_pos[0], stitch_pos[1] - 1)
 
         # based on the bottom line of the chip at the leftest position of the row
@@ -995,6 +966,9 @@ class Augmentor:
 
         new_centre_x, new_centre_y = compute_new_centre_row(m_c_row[0], m_c_row[1], chip_label[-1],
                                                             neighbour_chip_label[-2], neighbour_chip_label[-1], gap)
+
+        if not new_centre_x:
+            return False, False, False
 
         # stitch this new chip into the provided image
         stitched_img, stitched_labels, bounding_box = Augmentor.__embed_in_structure_row(
@@ -1016,22 +990,32 @@ class Augmentor:
         # stitch row structures vertically
         # Calculate the canvas width and height
         max_width = max(rect.shape[1] for rect in structure_row_img)
-        total_height = sum(rect.shape[0] for rect in structure_row_img) + gap * (len(structure_row_img) - 1)
+        total_height = round(sum(rect.shape[0] for rect in structure_row_img) + gap * (len(structure_row_img) - 1))
 
         # Create an empty canvas
-        canvas = np.zeros((total_height, max_width, 3), dtype=np.uint8)
+        canvas = np.zeros((round(total_height), round(max_width), 3), dtype=np.uint8)
 
         # Initialize the y-coordinate for placing rectangles
-        y_offset = 0
-
-        # Iterate through the rectangles and place them on the canvas
-        for rect in structure_row_img:
-            height, width = rect.shape[: 2]
-            canvas[y_offset: y_offset + height, : width] = rect
-            y_offset += height + gap
+        y_offset: int = 0
 
         # refactor labels in the LabelsType for cache creating or further data augmentation
         structure_labels = defaultdict(list)
+
+        # Iterate through the rectangles and place them on the canvas
+        for row, rect in enumerate(structure_row_img):
+            height, width = rect.shape[: 2]
+            canvas[y_offset: y_offset + height, : width] = rect
+
+            # for labels
+            for pos, chip_label in stitch_labels.items():
+                if pos[0] == row:
+                    for label_type, label_list in chip_label.items():
+                        if label_type != DNA_ORIGAMI:
+                            for label in label_list:
+                                structure_labels[label_type].append(label)
+                                structure_labels[label_type][-1][:, 1] += y_offset
+
+            y_offset += height + round(gap)
 
         # DNA origami
         top_left = (0, 0)
@@ -1044,7 +1028,7 @@ class Augmentor:
         # Active sites
         for _, chip_label in stitch_labels.items():
             for label_type, labels_list in chip_label.items():
-                if label_type == ACTIVE_SITE:
+                if label_type == "active_site":
                     for as_label in labels_list:
                         structure_labels[ACTIVE_SITE].append(as_label)
 
@@ -1117,7 +1101,11 @@ class Augmentor:
         existing_labels[stitch_pos] = new_stitched_chip_labels
 
         # find the extended bounding box enclosing the row structure
-        rectangles = [label[DNA_ORIGAMI][0].astype(np.int32) for _, label in existing_labels.items()]
+        rectangles: List[np.ndarray] = []
+        for pos, label in existing_labels.items():
+            if pos[0] == stitch_pos[0]:
+                rectangles.append(label[DNA_ORIGAMI][0].astype(np.int32))
+
         all_corners = np.array([corner for rectangle in rectangles for corner in rectangle])
         rect = cv2.minAreaRect(all_corners)
         box = cv2.boxPoints(rect)
@@ -1137,16 +1125,18 @@ class Augmentor:
 
         # plot
         if cls.debug:
+            cropped_region_plot = cropped_region.copy()
+
             for pos, label_dict in existing_labels.items():
                 if pos[0] == stitch_pos[0]:
-                    Image.plot_labels(canvas, label_dict)
+                    cropped_region_plot = Image.plot_labels(cropped_region_plot, label_dict)
 
             pts = np.array([box]).reshape((-1, 1, 2)).astype(np.int32)
-            cv2.polylines(cropped_region, [pts], True, (255, 0, 0), 3)
+            cv2.polylines(cropped_region_plot, [pts], True, (255, 0, 0), 3)
 
-            cv2.imwrite('combine_1.png', cropped_region)
+            cv2.imwrite(f'../debug/debug_6_{cls.COUNTER}_{stitch_pos}.png', cropped_region_plot)
 
-        return canvas, new_stitched_chip_labels, box
+        return cropped_region, new_stitched_chip_labels, box
 
     @staticmethod
     def __embed_component(component_img: np.ndarray,
@@ -1173,10 +1163,6 @@ class Augmentor:
         # black regions in the component (due to the rotation of the component) -> black
         # non-black region -> white
         _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
-
-        # if the component lies out of the background, generate another position
-        # if Augmentor.__is_out(component_img.shape[: 2], background_img.shape[: 2], (new_centre_y, new_centre_x)):
-        #     raise Exception(f"Error: Component falls out of the mosaic.")
 
         # invert this mask: black region -> white; non-black region -> black
         mask_inv = cv2.bitwise_not(mask)
@@ -1211,7 +1197,7 @@ class Augmentor:
         topLeft_corner_x: topLeft_corner_x + component_img.shape[1]] = result
 
         # convert labels in the component image reference system from TL to centre
-        centre = component_img.shape[:2:-1] / 2
+        centre = np.asarray(component_img.shape[:: -1][: 2]) / 2
         component_labels_to_centre = Component.convert_TL_to_centre(centre, component_labels)
 
         # convert labels in the background image reference system from centre to TL
@@ -1310,26 +1296,6 @@ class Augmentor:
 
                     return new_x, new_y, pos_recorder
 
-    def __position_in_structure(self,
-                                component_img: np.ndarray,
-                                pos_recorder: np.ndarray,
-                                pos_in_struc: List[Tuple[int, int]],
-                                p2nm: float) -> Tuple[Tuple[int, int], np.ndarray]:
-        pass
-
-    # @staticmethod
-    # def __find_corners(mask: np.ndarray) -> np.ndarray:
-    #     """"""
-    #     """
-    #     cv2.RETR_TREE: retrieval mode creates a hierarchy of contours,
-    #     cv2.CHAIN_APPROX_SIMPLE: compresses horizontal, vertical, and diagonal segments -> leaves only their end points
-    #     """
-    #     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    #     coordinates = contours[0].reshape(-1, 4, 2)  # (x ,y) <-> width, height
-    #     # coordinates[:, [0, 1]] = coordinates[:, [1, 0]]  # (y, x)
-    #
-    #     return coordinates
-
     @staticmethod
     def __save_directory(mode: str, save_path: str):
         Augmentor.__path_exists_or_create(save_path)
@@ -1413,24 +1379,13 @@ class Augmentor:
             logger.warning(f"Directory {save_path} is not found")
             logger.info(f"Directory {save_path} is created")
 
-    @staticmethod
-    def __find_row_structure_label(stitched_row_labels: List[np.ndarray]):
-        # all individual chips in one row structure with their corners
-        rectangles = [label[DNA_ORIGAMI][0].astype(np.int32) for label in stitched_row_labels]
-        all_corners = np.array([corner for rectangle in rectangles for corner in rectangle])
-
-        # use the minimum area rectangle to enclose all the corners for chips
-        rect = cv2.minAreaRect(all_corners)
-        box = cv2.boxPoints(rect)
-        box = np.int0(box)
-
-        return box
-
 
 if __name__ == "__main__":
     args = ArgumentParser.test_aug(GENERATE_EXTENDED_STRUCTURE)
-    db = DatabaseManager("../data/DNA_augmentation", training_dataset_name=args.dataset_name)
-    db.scan_and_update("../test_dataset", "../data", load_cache=True, cache_dir="test_cache")
+    db = DatabaseManager("../data/DNA_augmentation",
+                         component_name=args.component_name,
+                         training_dataset_name=args.dataset_name)
+    db.scan_and_update("../test_dataset", "../data", load_cache=False, cache_dir="test_cache")
 
     data_loader = DataLoader.initialise(img_path=args.img_path,
                                         dataset_path=args.dataset_path,
@@ -1440,7 +1395,7 @@ if __name__ == "__main__":
     # data_loader.load_cached_files(BACKGROUND, "../test_dataset/test_cache/background_2023_08_04_15:32.pkl")
     # data_loader.load_cached_files(CROPPED, "../test_dataset/test_cache/cropped_2023_08_19_00:39.pkl")
     #
-    data_loader.load_backgrounds(0).load_cropped_components(labels="ordered_labels")
+    data_loader.load_backgrounds(0).load_cropped_components(dir_name=args.component_name)
 
     # component
     # data_loader = DataLoader.initialise(args.img_path).load_raw_components()
@@ -1455,7 +1410,7 @@ if __name__ == "__main__":
     # augmentation
     # task_assigner = TaskAssigner.augmented_task(args, db)
     task_assigner = TaskAssigner.extended_structure_task(args, db)
-    for task in task_assigner.augmentation_task_pipeline:
-        print(task)
+
     Augmentor.produce_extended_structures(data_loader, task_assigner, db, args.debug)
+    # Augmentor.produce_augmented(data_loader, task_assigner, db, args.debug)
     db.close_connection()

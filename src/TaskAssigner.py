@@ -39,7 +39,7 @@ class TaskAssigner:
             flip: vertical - 'v' / horizontal - 'h'
             rotation: 180
             """
-            self.operations_backgrounds = ['v', 'h', 180]
+            self.operations_backgrounds = [V, H, 180]
             self.num_per_side: int = 0
             self.num_mosaic_in_background: int = 0
             self.kernel_size: int = 0
@@ -64,6 +64,8 @@ class TaskAssigner:
                 self.gap_h: float = .0
                 self.stitch_size: Tuple | None = None
             else:
+                self.component_name: str = CROPPED
+
                 # [required_scale, background_texture, component_texture, position, flip, rotation]
                 self.height_domain: int = 0
                 self.width_domain: int = 0
@@ -71,6 +73,8 @@ class TaskAssigner:
                 self.patience: int = 0
                 self.max_try: int = 0
                 self.n_split: List[int] = []
+
+                self.patience: int = 100
 
     @classmethod
     def background_task(cls,
@@ -156,8 +160,7 @@ class TaskAssigner:
         # default value is 640
         task_assigner.initial_scale = args.initial_scale
 
-        task_assigner.augmentation_task_pipeline, _ = Task.initialise_list(SIMPLE, args.aug_number,
-                                                                           size=task_assigner.stitch_size)
+        task_assigner.augmentation_task_pipeline, _ = Task.initialise_list(SIMPLE, args.aug_number)
 
         # ids for components
         # FIXME
@@ -179,37 +182,15 @@ class TaskAssigner:
 
     @classmethod
     def augmented_task(cls, args: argparse.Namespace, db: DatabaseManager) -> TaskAssigner:
-        """
-        For augmenting structures with chips stitched together, the rotation for each chip is the same, and the size
-        is very close because the original size of each chip is not the same and the aspect ratio should be also kept.
-        The augmentation only allows to produce all structures with the same number of stitched chips.
-        :param args:
-        :param db:
-        :return:
-        """
-        if np.any([args.stitch[0] <= 0, args.stitch[1] <= 0]):
-            raise Exception(f"Error: Incorrect given stitching size")
-
-        n_chip_l, n_chip_h = args.n_chip
-        if n_chip_l <= 0 or n_chip_h <= 0 or n_chip_h < n_chip_l:
-            raise Exception(f"Error: Incorrect range of chip number is given.")
-
-        if args.scale_increment <= 0 or args.rotation_increment <= 0:
-            raise ValueError(f"Given invalid increment for scale or rotation or both two.")
-
         task_assigner = cls(args.function)
 
-        task_assigner.stitch_size = tuple(args.stitch)
-        task_assigner.n_stitch = int(args.stitch[0] * args.stitch[1])  # number of individual chips per structure
         task_assigner.dataset_name = args.dataset_name
+        n_chip_l, n_chip_h = args.n_chip
 
         task_assigner.cache = args.cache
         task_assigner.difficult = args.difficult
         task_assigner.patience = args.patience
         task_assigner.expected_num = args.aug_number
-        task_assigner.decimal_place = TaskAssigner.__num_of_decimal_place(args.scale_increment)
-        task_assigner.gap_w = args.gap_w
-        task_assigner.gap_h = args.gap_h
 
         # maximum number of attempt to finish the target number of tasks
         task_assigner.max_try = int(args.aug_number * (args.buffer + 1))
@@ -217,83 +198,106 @@ class TaskAssigner:
         task_assigner.mode = args.mode
         task_assigner.save_path = args.save_path
         task_assigner.cache_save_dir = args.cache_save_dir
+        task_assigner.component_name = args.component_name
 
         # resize the components into a suitable size compared with the existing backgrounds
         task_assigner.initial_scale = args.initial_scale
 
         task_assigner.augmentation_task_pipeline, n_split = Task.initialise_list(args.mode, task_assigner.max_try,
-                                                                                 ratio=args.training_ratio)
+                                                                                 args.training_ratio)
 
         if n_split:
             task_assigner.n_split = ratio_to_number(args.training_ratio, task_assigner.expected_num)
 
         # magnify or shrink the origami
         min_scale, max_scale = args.scale_range
-        num_interval = int((max_scale - min_scale) / args.scale_increment + 1)
+        num_interval = int((max_scale - 1) / args.scale_increment + 1)
+
+        # flip
+        flip_options = [V, H, N]
 
         # rotation
         max_range = 180 + args.rotation_increment
 
-        ids_background = TaskAssigner.__ids_texture_morphology(args.backgrounds, BACKGROUND, db)  # ids for backgrounds
-        ids_extended_component = TaskAssigner.__ids_texture_morphology(args.components, CROPPED, db)
-
-        n_actual_task: int = 0
-
         for idx, task in track(enumerate(task_assigner.augmentation_task_pipeline)):
-            skip_flag: bool = False
+            # Choose Background image by id with textures
+            TaskAssigner.choose_texture(BACKGROUND, args.backgrounds, task, db)
 
-            n_structure: int = 0  # amount structures per background
-            counter: int = 0  # trials to generate a suitable n_chip
+            # rescale
+            # for each AFM image, the scale is a fixed value covering the whole image, and there should not be any same
+            # kind of objects with dramatically different scale but can accept tiny change between +/- 0.2
+            # TODO: if the number of chips is larger -> the scale of the chip should be smaller -> able to fill
+            # TODO: in the background
+            if args.scaling_mode == "fixed":
+                required_scale = 1
+            elif args.scaling_mode == "random":
+                # if args.n_chip > 3:
+                #     adapted_max_scale = TaskAssigner.adaptive_scale_generator(task_assigner.n_chip,
+                #                                                               task_assigner.initial_scale, min_scale,
+                #                                                               max_scale)
+                required_scale = random.choice(np.linspace(min_scale, max_scale, num=num_interval))
+            elif args.scaling_mode in ["larger", "smaller"]:
+                required_scale = TaskAssigner.biased_random(args.scaling_mode, min_scale, max_scale, num_interval)
+            else:
+                raise Exception(f"Error: Incorrect scaling model {args.scaling_mode} is given.")
 
-            # compute suitable amount structures per background
-            while True:
-                if counter >= args.patience:
-                    # too hard to prepare the task
-                    skip_flag = True
-                    break
+            task.required_scale = required_scale
 
-                # Rescale
-                # for each AFM image, the scale is a fixed value for a whole image, and there should not be any
-                # dramatic difference of scale for same objects but allows tiny change between +/- 0.2
-                # TODO: if the number of chips is larger -> the scale of the chip should be smaller -> able to fill
-                # TODO: in the background
-                task.required_scale = TaskAssigner.__rescale_generator(args.scaling_mode, min_scale, max_scale,
-                                                                       num_interval,
-                                                                       decimal_places=task_assigner.decimal_place)
+            # generate number of chips in one background
+            n_chip = random.randint(n_chip_l, n_chip_h)
+            task.n_chip = n_chip
 
-                n_structure = TaskAssigner.__number_chip_generator(args.initial_scale, task.required_scale,
-                                                                   task_assigner.n_stitch, n_chip_l, n_chip_h)
+            for n in range(n_chip):
+                # Choose Component image by id with textures
+                TaskAssigner.choose_texture(task_assigner.component_name, args.components, task, db)
 
-                # produce one task
-                if n_structure != -1:
-                    n_actual_task += 1
-                    break
+                # flip
+                task.flip.append(random.choice(flip_options))
 
-            # fail to produce one task
-            if skip_flag:
-                task_assigner.augmentation_task_pipeline.remove(task)
-                continue
+                # rotation
+                task.rotation.append(random.choice(range(-180, max_range, args.rotation_increment)))
 
-            task.n_structure = n_structure
-
-            # Choose Background image
-            task.background_id = random.choice(ids_background)
-
-            # All chips in a structure share the same orientation and very similar size.
-            # Choose Components by id with morphology
-            total_num = int(n_structure * task_assigner.n_stitch)
-            task.component_id = np.asarray(random.choices(ids_extended_component, k=total_num)).reshape(
-                n_structure, task_assigner.n_stitch)
-
-            # flip
-            task.flip = np.asarray(random.choices([V, H, N], k=total_num)).reshape(
-                n_structure, task_assigner.n_stitch)
-
-            # rotation
-            # for all chips in a structure
-            task.rotation = random.choices(range(-180, max_range, args.rotation_increment), k=n_structure)
+                """
+                Check if equivalent augmentation exists with same component, similar scale and special combination of
+                flip and rotation. This is equivalent to each other if:
+                h_flip + positive rotate (D) = v_flip + negative rotate (180 - D)
+                where D > 0
+                """
+                while True:
+                    if TaskAssigner.equivalence_check_for_one_chip(task_assigner.augmentation_task_pipeline[: idx + 1],
+                                                                   args.scale_increment):
+                        # same or equivalent
+                        # here we change the rotation to avoid
+                        task.rotation[-1] = random.choice(range(-180, max_range, args.rotation_increment))
+                    else:
+                        break
 
         return task_assigner
+
+    @staticmethod
+    def equivalence_check_for_one_chip(pipeline: List[Task], scale_interval: float):
+        if len(pipeline) == 1:
+            return False
+
+        new_added_task = pipeline[-1]
+
+        # [0r, 2c, 4f, 5r]
+        for previous_task in pipeline[: -1]:
+            # same component and similar scale
+            if previous_task.component_id[0] == new_added_task.component_id[0] and abs(
+                    previous_task.required_scale - new_added_task.required_scale) <= 2 * scale_interval:
+                # exactly same flip + rotate
+                if previous_task.flip[0] == new_added_task.flip[0] and previous_task.rotation[0] == \
+                        new_added_task.rotation[0]:
+                    return True
+                elif previous_task.flip[0] + new_added_task.flip[0] == 1 and int(abs(
+                        previous_task.rotation[0] - new_added_task.rotation[0])) == 180:
+                    # special combination
+                    return True
+                else:
+                    return False
+            else:
+                return False
 
     @staticmethod
     def __ids_texture_morphology(requirement: str,
@@ -381,7 +385,7 @@ class TaskAssigner:
         based on the final number of chips in the background.
         :param n_chip:
         :param initial_scale:
-        :param min_s:
+        :param min_s:rr
         :param max_s:
         :return:
         """
@@ -401,3 +405,21 @@ class TaskAssigner:
         elif n_chip <= round(safe_chip_volume * 0.6):
             r_max_s = round(1 / round(safe_chip_volume * 0.6) * safe_chip_volume, 1)
             return abs_min_s, r_max_s
+
+    @staticmethod
+    def choose_texture(table_name: str, given: str, task: Task, db: DatabaseManager):
+        ids = db.select_table(table_name).get_unique_values("id")
+        target_col = "Texture" if table_name == BACKGROUND else "Morphology"
+
+        if given == "random":
+            if table_name == BACKGROUND:
+                task.background_id = random.choice(ids)
+            else:
+                task.component_id.append(random.choice(ids))
+        else:
+            grouped_ids = db.select_table(table_name).group_by_column("id", target_col)
+
+            if table_name == BACKGROUND:
+                task.background_id = random.choice(grouped_ids[given])
+            else:
+                task.component_id.append(random.choice(grouped_ids[given]))

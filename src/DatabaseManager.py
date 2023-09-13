@@ -31,14 +31,15 @@ class DatabaseManager:
     col_len: Dict[str, int] = dict()
     table_names: List[str]
     training_dataset_name: str = AUGMENTED
+    component_name: str = CROPPED
 
     prefix_name: Dict[str, str] = dict()
     condition_templates: Dict[str, str] = dict()
 
-    fixed_tables = [BACKGROUND, MOSAICS, RAW, CROPPED]
+    fixed_tables = [BACKGROUND, MOSAICS, RAW]
     current_all_tables: List[str]
 
-    def __init__(self, db_path: str, training_dataset_name: str = AUGMENTED):
+    def __init__(self, db_path: str, component_name: str = CROPPED, training_dataset_name: str = AUGMENTED):
         self.__db_connection = sqlite3.connect(db_path)
         self.__cursor = self.__db_connection.cursor()
         self.training_dataset_name = training_dataset_name
@@ -70,8 +71,8 @@ class DatabaseManager:
         # self.col_len[BACKGROUND] = self.num_of_cols(BACKGROUND)
 
         # Initialise component table
-        self.__cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cropped (
+        self.__cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {component_name} (
                 id INTEGER PRIMARY KEY,
                 Sample TEXT,
                 Raw_image TEXT,
@@ -117,6 +118,11 @@ class DatabaseManager:
         self.__cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         self.table_names = [table_name[0] for table_name in self.__cursor.fetchall()]
 
+        # table names of those tables which are currently activated
+        self.fixed_tables.append(component_name)
+        self.component_name = component_name
+        self.current_all_tables = self.fixed_tables + [training_dataset_name]
+
         self.prefix_name = {
             MOSAICS: "Mosaic_name",
             BACKGROUND: "Background_name",
@@ -125,11 +131,13 @@ class DatabaseManager:
             training_dataset_name: "Image_name"
         }
 
-        # table names of those tables which are currently activated
-        self.current_all_tables = self.fixed_tables + [training_dataset_name]
-
         for table_name in self.current_all_tables:
-            self.condition_templates[table_name] = self.prefix_name[table_name] + " = '{}'"
+            if table_name == component_name:
+                prefix = "Sample"
+            else:
+                prefix = self.prefix_name[table_name]
+
+            self.condition_templates[table_name] = prefix + " = '{}'"
 
             # get number of columns for each current working tables
             self.col_len[table_name] = self.num_of_cols(table_name)
@@ -491,11 +499,11 @@ class DatabaseManager:
             if table_name == MOSAICS:
                 column_values.append(height)  # height
                 column_values.append(width)  # width
-        elif table_name in [CROPPED, RAW]:
+        elif table_name in [self.component_name, RAW]:
             column_values.append(height)
             column_values.append(width)
 
-            if table_name == CROPPED:
+            if table_name == self.component_name:
                 # for existing image extraction we do not know the raw image where it comes from
                 column_values.insert(1, "N/A")  # Raw image
                 column_values.insert(2, img_name_ext.split("_")[1])  # Morphology

@@ -4,6 +4,8 @@ from typing import List
 
 import numpy as np
 
+from src.constant import CROPPED
+
 
 class ArgumentParser:
     parser: argparse.ArgumentParser
@@ -93,6 +95,9 @@ class ArgumentParser:
         self.parser.add_argument("--dataset_name",
                                  type=str,
                                  default="default_dataset")
+        self.parser.add_argument("--component_name",
+                                 type=str,
+                                 default=CROPPED)
         self.parser.add_argument("--initial_scale", "-is",
                                  type=float,
                                  default=1 / 4,
@@ -206,16 +211,17 @@ class ArgumentParser:
 
         return arg_parser.parser.parse_args(["--function", f"{function}",
                                              "-ip", "../data",
-                                             "-sp", "../test_dataset",
+                                             "-sp", "../demo_dataset",
                                              "-dp", "../test_dataset",
-                                             "--dataset_name", "extended_2x2",
+                                             "--dataset_name", "test",
+                                             "--component_name", "cropped",
                                              "--bg_number", '10',
                                              "--aug_number", '10',
-                                             "--n_chip", '1', '10',
+                                             "--n_chip", '1', '5',
                                              "--patience", '20',
                                              "--stitch", '2', '2',
-                                             "--initial_scale", '320',
-                                             "--debug"])
+                                             "--initial_scale", '0.25',
+                                             ])
 
     def find_all_choices(self, param: str) -> List:
         _choices = None
@@ -227,8 +233,3 @@ class ArgumentParser:
                 return _choices
 
         raise Exception(f"Given parameter {param} is not found.")
-
-
-if __name__ == "__main__":
-    arg_p = ArgumentParser()
-    print(arg_p.find_all_choices("label"))

@@ -7,17 +7,25 @@ import numpy as np
 
 from src.Image import Image
 from src.utils import mkdir_if_not_exists
-from typeHint import LabelsType
+from src.typeHint import LabelsType
 
 
 class Background(Image):
     background_textures = ["clean", "noisy", "noisyL", "messy"]
 
     def __init__(self,
-                 img_path: Union[str, None],
-                 mosaic_size: int = 0):
-        super().__init__(img_path=img_path)
+                 img_path: str | None,
+                 mosaic_size: int = 0,
+                 img: np.ndarray = None,
+                 img_name: str = None):
+        if img_path:
+            super().__init__(img_path=img_path)
+
         self.texture: str  # clean, noisy, messy
+
+        if not img_path:
+            self.set_image(img)
+            self.img_name = img_name
 
         # classify into different textures
         self.texture = re.split("[_.]", self.img_name)[1]

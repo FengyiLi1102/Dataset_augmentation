@@ -255,10 +255,6 @@ class Component(Image):
         cropped_canvas = canvas[min_y:max_y + 1, min_x:max_x + 1]
 
         # Update the label coordinates
-        # new_label = chip_label.copy()
-        # new_label[:, 0] -= min_x
-        # new_label[:, 1] -= min_y
-
         labels_copy = component_labels.copy()
         for key, value in labels_copy.items():
             for labels in value:

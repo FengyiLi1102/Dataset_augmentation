@@ -167,7 +167,7 @@ def compute_new_centre_row(m: float,
                            bottom_left_corner: PointCoordinateType,
                            bottom_right_corner: PointCoordinateType,
                            end_corner: PointCoordinateType,
-                           gap_w: float) -> PointCoordinateType:
+                           gap_w: float) -> PointCoordinateType | Tuple[bool, bool]:
     """
 
     :param m:
@@ -230,11 +230,11 @@ def compute_new_centre_row(m: float,
     x_1 = (-B + math.sqrt(discriminant)) / (2 * A)
     x_2 = (-B - math.sqrt(discriminant)) / (2 * A)
 
-    xl, yl = blc_x + x_2, m * (blc_x + x_2) + c
+    # xl, yl = blc_x + x_2, m * (blc_x + x_2) + c
     # print("x_2 new bottom left corner: ", xl, yl)
     # print("distance: ", np.linalg.norm(np.array(bottom_right_corner) - (xl, yl)))
 
-    xll, yll = blc_x + x_1, m * (blc_x + x_1) + c
+    # xll, yll = blc_x + x_1, m * (blc_x + x_1) + c
     # print("x_1 new bottom left corner: ", xll, yll)
     # print("distance: ", np.linalg.norm(np.array(bottom_right_corner) - (xll, yll)))
 
@@ -258,7 +258,7 @@ def compute_new_centre_row(m: float,
             break
 
     if not X or not Y:
-        raise Exception("Error: Position of the new stitched chip is computed incorrectly.")
+        return False, False
 
     # print(compute_m_c(np.array([new_blc_x, Y + blc_y]), np.array(bottom_right_corner)))
 

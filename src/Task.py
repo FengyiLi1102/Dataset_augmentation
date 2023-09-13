@@ -19,7 +19,6 @@ class Task:
         self.background_id: int = 0
         self.split: int = 0
 
-        # TODO: (stitch) reformat into List[np.ndarray]
         self.n_structure: int = 1
 
         """
@@ -32,9 +31,10 @@ class Task:
              [[1, 2, 3, 4],
               [5, 6, 7, 8]]
         """
-        self.component_id: np.ndarray | None = None  # (row, col) = id_chip
-        self.flip: np.ndarray | None = None  # (row, col) = flip
-        self.position: List[np.ndarray] = []
+        self.n_chip: int = 1
+        self.component_id: np.ndarray | None | List[int] = []  # (row, col) = id_chip
+        self.flip: np.ndarray | None | List[int] = []  # (row, col) = flip
+        # self.position: List[np.ndarray] = []
 
         self.rotation: List[int] = []  # [rotation for all chips in each structure]
         self.required_scale: float = .0
@@ -43,7 +43,6 @@ class Task:
     def initialise_list(cls,
                         mode: str,
                         num: int,
-                        size: PointImageType | None = None,
                         ratio: List[int] = None) -> Tuple[List[Task], List[int] | None]:
         init_list = []
         n_split = None
@@ -75,13 +74,20 @@ class Task:
         print(f"Background img: {self.background_id} \n",
               f"required_scale: {self.required_scale} \n")
 
-        for idx in range(self.component_id.shape[0]):
-            print(f"Structure: {idx} \n")
-            print(f"component img: {self.component_id[idx]} \n",
-                  f"flip: {self.flip[idx]} \n")
-                  # f"rotation: {self.rotation[idx]} \n")
+        if type(self.component_id) is np.ndarray:
+            for idx in range(self.component_id.shape[0]):
+                print(f"Structure: {idx} \n")
+                print(f"component img: {self.component_id[idx]} \n",
+                      f"flip: {self.flip[idx]} \n")
 
-        print(f"split: {self.split} \n")
-        print(f"================================================")
+            print(f"================================================")
+        else:
+            for idx in range(len(self.component_id)):
+                print(f"component img: {self.component_id[idx]} \n",
+                      f"flip: {self.flip[idx]} \n",
+                      f"rotation: {self.rotation[idx]} \n")
+
+            print(f"split: {self.split} \n")
+            print(f"================================================")
 
         return ""

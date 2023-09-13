@@ -12,8 +12,10 @@ from src.constant import DNA_AUGMENTATION, GENERATE_FAKE_BACKGROUND, CROP_ORIGAM
 
 
 def database_update(args: argparse.Namespace):
-    database = DatabaseManager(os.path.join(f"data/{DNA_AUGMENTATION}"), training_dataset_name=args.dataset_name)
-    database.scan_and_update(args.dataset_path, args.img_path, load_cache=args.cache_scan)
+    database = DatabaseManager(os.path.join(f"data/{DNA_AUGMENTATION}"), component_name=args.component_name,
+                               training_dataset_name=args.dataset_name)
+    database.scan_and_update(args.dataset_path, args.img_path, load_cache=args.cache_scan,
+                             cache_dir=args.cache_save_dir)
 
     return database
 
@@ -64,6 +66,12 @@ def generate_extended_structures(args: argparse.Namespace, db: DatabaseManager):
 
 
 def run(args: argparse.Namespace, db: DatabaseManager):
+    """
+    Produce synthetic AFM images by embedding the component images into the background
+    :param args:
+    :param db:
+    :return:
+    """
     data_loader = DataLoader.initialise(args.img_path, args.dataset_path, args.save_path, args.cache_save_dir)
 
     data_loader = load_data(args.cache_bg_path, data_loader, True)
@@ -113,7 +121,7 @@ def main(args: argparse.Namespace) -> Tuple[bool, Union[DatabaseManager, None]]:
     db: Union[DatabaseManager, None] = None
     db_flag: bool = False
 
-    if args.function in [RUN, CROP_ORIGAMI, GENERATE_FAKE_BACKGROUND]:
+    if args.function in [RUN, CROP_ORIGAMI, GENERATE_FAKE_BACKGROUND, GENERATE_EXTENDED_STRUCTURE]:
         db = database_update(args)
         db_flag = True
 

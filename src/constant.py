@@ -23,6 +23,12 @@ V = 0
 H = 1
 N = -1
 
+flip_convertor = {
+    V: "v",
+    H: "h",
+    N: "n"
+}
+
 split_convertor = {
     0: "train",
     1: "val",

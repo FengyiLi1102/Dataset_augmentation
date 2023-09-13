@@ -152,13 +152,13 @@ class DataLoader:
 
         return self
 
-    def load_cropped_components(self, images: str = "images", labels: str = "labels"):
+    def load_cropped_components(self, dir_name: str = CROPPED, images: str = "images", labels: str = "labelTxt"):
         logger.info(">>> Start to load cropped components")
 
         try:
-            component_img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/{images}/*")),
+            component_img_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{dir_name}/{images}/*")),
                                          key=lambda x: int(''.join(filter(str.isdigit, x))))
-            component_label_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{CROPPED}/{labels}/*")),
+            component_label_paths = sorted(glob.glob(os.path.join(self.dataset_root_path, f"{dir_name}/{labels}/*")),
                                            key=lambda x: int(''.join(filter(str.isdigit, x))))
         except Exception as e:
             raise Exception(f"Error: Image paths cannot be correctly extracted from given paths with error {e}")
@@ -171,15 +171,15 @@ class DataLoader:
                             f"This is currently required users to firstly label manually all the components by \n"
                             f"some software such as RectLabel.")
 
-        logger.info(f">>> Load {len(component_img_paths)} cropped components from {self.dataset_root_path}/{CROPPED}")
+        logger.info(f">>> Load {len(component_img_paths)} components from {self.dataset_root_path}/{dir_name}")
 
         for img_path, label in track(zip(component_img_paths, component_label_paths)):
             img = Component(img_path=img_path, label_path=label)
             self.name_component[img.img_name] = img
 
-        logger.info(">>> Finish loading cropped components")
+        logger.info(">>> Finish loading components")
 
-        logger.info(">>> Start to create the cache for cropped components")
+        logger.info(">>> Start to create the cache for components")
 
         # cache the cropped origami file into pickle for future fast loading
         cache_save_path = os.path.join(self.save_path, self.cache_save_dir)
